@@ -1,0 +1,62 @@
+# AAFly — intégration continue (compilation + tests + jar).
+# Developped by AzurHOSTS.com and powered by AzurWare.fr.
+name: Build
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+# Moindre privilège : lecture seule du dépôt.
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Gradle build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK 25 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          # Le cache n'est écrit que depuis la branche par défaut (pas d'empoisonnement depuis une PR).
+          cache-read-only: ${{ github.ref != format('refs/heads/{0}', github.event.repository.default_branch) }}
+
+      - name: Build (compile + tests)
+        run: |
+          chmod +x ./gradlew
+          ./gradlew build --console=plain --no-daemon
+
+      - name: Upload plugin jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: AAFly-jar
+          path: build/libs/AAFly-*.jar
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload test reports (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AAFly-test-reports
+          path: build/reports/tests/
+          if-no-files-found: ignore
+          retention-days: 7

@@ -1,0 +1,140 @@
+# AAFly — configuration principale.
+# Developped by AzurHOSTS.com and powered by AzurWare.fr.
+# Les clés manquantes sont ajoutées automatiquement au chargement (sans écraser vos valeurs).
+# Une configuration invalide désactive proprement le plugin avec un message explicite.
+config-version: 1
+debug: false
+
+storage:
+  # SQLITE (fichier local) ou MYSQL (partage multi-serveurs).
+  type: SQLITE
+  # Intervalle d'écriture groupée des profils modifiés (10 à 86400 secondes).
+  save-interval-seconds: 300
+  mysql:
+    host: localhost
+    port: 3306
+    database: aafly
+    username: aafly
+    password: ""
+    use-ssl: false
+    pool-size: 6
+
+limits:
+  # Temps de vol maximal stocké par joueur, en secondes (défaut : 10 ans).
+  max-seconds: 315360000
+
+decrement:
+  # FLY_MODE : décompte dès que le vol est activé. FLYING_MODE : seulement quand le joueur vole.
+  mode: FLYING_MODE
+  # Ne pas décompter si le joueur est immobile depuis static-delay-seconds.
+  disable-when-static: false
+  static-delay-seconds: 3
+  # Décompter aussi le temps passé hors-ligne (si le vol était actif à la déconnexion).
+  offline: false
+
+flight:
+  # Téléporte au sol (sans dégâts de chute) quand le vol est coupé.
+  tp-on-floor-when-disabled: true
+  # Réactive le vol quand une règle ne l'interdit plus.
+  auto-reactivate-after-rule: true
+  # Les OP n'ont PAS de vol illimité par défaut (utilisez la permission aafly.unlimited).
+  unlimited-for-op: false
+  keep-flight-on-world-change: true
+  # Vitesse par défaut (0.1 à 1.0).
+  default-speed: 0.1
+
+actionbar:
+  enabled: false
+  hide-if-unlimited: true
+  message: "<gold>Vol : <yellow>%aafly_remaining%"
+
+rules:
+  # Fréquence de réévaluation des règles de vol (1 à 60 secondes).
+  check-interval-seconds: 1
+  # aafly.bypass.rules : ignore les règles et ne décompte pas le temps.
+  bypass-no-decrement: true
+
+pvp:
+  # Coupe le vol si un joueur « ennemi » est proche.
+  enabled: false
+  # Rayon de détection (1 à 64 blocs).
+  radius: 5
+  check-interval-seconds: 1
+  # Placeholders de même valeur = alliés (ex. "%lands_land_name%").
+  # Choix sûr : une valeur vide ou non résolue (ou PlaceholderAPI absent) ne rend jamais deux joueurs
+  # alliés ; deux joueurs sans land/faction restent donc ennemis.
+  bypass-placeholders: []
+
+give:
+  enabled: true
+  cooldown-seconds: 0
+  min-seconds: 5
+  max-seconds: 3600
+
+token:
+  enabled: true
+  material: FEATHER
+  name: "<aqua>Jeton de vol <gray>(%remaining%)"
+  lore: ["<gray>Clic droit pour encaisser", "<dark_gray>AAFly by AzurHOSTS"]
+  custom-model-data: 0
+  # Bornes et délai de /fly convert (limite le nombre de jetons créés).
+  min-seconds: 60
+  max-seconds: 86400
+  cooldown-seconds: 10
+
+timed-fly:
+  # Temps de vol par groupe + recharge. Quand il est actif, /aafly add|remove est refusé.
+  enabled: false
+  decrement-cooldown-offline: false
+  reset-after-disable: false
+  # Liste ordonnée : le premier groupe correspondant au joueur gagne.
+  groups:
+    - { name: vip, fly-time: 120, cooldown: 30 }
+    - { name: default, fly-time: 10, cooldown: 60 }
+
+format:
+  seconds: true
+  minutes: true
+  hours: true
+  days: true
+  # Masque les unités à zéro.
+  auto-format: true
+  unlimited: "Illimité"
+  empty: "0s"
+  pattern: "%days% %hours% %minutes% %seconds%"
+  units:
+    seconds: "<yellow>%seconds%<gold>s"
+    minutes: "<yellow>%minutes%<gold>m"
+    hours: "<yellow>%hours%<gold>h"
+    days: "<yellow>%days%<gold>j"
+
+actions:
+  # Autorise l'action [player] (commande exécutée par le joueur). Désactivé par sécurité.
+  allow-player-commands: false
+
+compat:
+  # Expansion PlaceholderAPI %wfly_...% pour migrer depuis wFly.
+  wfly-placeholders: true
+  # wfly.infinite.fly -> aafly.unlimited, wfly.bypass.fly -> aafly.bypass.rules.
+  wfly-permissions: true
+
+commands:
+  # Alias supplémentaires de /fly (minuscules, chiffres, _).
+  fly-aliases: []
+  # Délai minimal (ms) entre deux /fly d'un même joueur (anti-spam, 0 = désactivé, max 60000).
+  toggle-cooldown-millis: 1000
+
+# Règles de vol : triées par priorité croissante ; la première dont toutes les conditions
+# correspondent décide (ALLOW / DENY). Aucune règle -> ALLOW.
+# Exemple :
+#   no_combat:
+#     priority: 1
+#     conditions:
+#       c: { type: string_equals, input: "%combatlogx_in_combat%", value: "true" }
+#     result: DENY
+#     actions: ["[actionbar] <red>Combat en cours"]
+fly-rules:
+  default: { priority: 999, result: ALLOW }
+
+# Règles de non-décompte : si une règle correspond, le temps n'est pas décompté.
+decrement-rules: {}

@@ -1,0 +1,11 @@
+build/
+.gradle/
+.idea/
+*.iml
+run/
+token.secret
+*.db
+.kotlin/
+
+# Documents internes (rétro-ingénierie wFly) : jamais publiés
+docs/private/

@@ -1,0 +1,41 @@
+name: AAFly
+version: "${version}"
+main: com.azurhosts.aafly.AAFlyPlugin
+loader: com.azurhosts.aafly.AAFlyLoader
+api-version: "1.21"
+authors: [AzurHOSTS]
+website: https://azurhosts.com
+description: "Vol temporisé par joueur (temps, règles, tokens, timed-fly). Developped by AzurHOSTS.com and powered by AzurWare.fr."
+dependencies:
+  server:
+    PlaceholderAPI:
+      load: BEFORE
+      required: false
+      join-classpath: true
+    LuckPerms:
+      load: BEFORE
+      required: false
+      join-classpath: true
+# Permissions : celles des joueurs et des admins sont réservées aux OP par défaut (à accorder via LuckPerms).
+# Les permissions « spéciales » valent false par défaut : un OP n'est ni illimité ni exempté des règles
+# tant qu'elles ne lui sont pas explicitement accordées (flight.unlimited-for-op pour l'illimité OP).
+permissions:
+  aafly.fly: { default: op, description: "Utiliser /fly" }
+  aafly.time: { default: op, description: "Voir son temps de vol (/fly time, /flytime)" }
+  aafly.time.others: { default: op, description: "Voir le temps de vol d'un autre joueur" }
+  aafly.give: { default: op, description: "Donner du temps de vol depuis son solde" }
+  aafly.token: { default: op, description: "Convertir du temps en jeton (/fly convert)" }
+  aafly.speed: { default: op, description: "Changer sa vitesse de vol (/flyspeed)" }
+  aafly.unlimited: { default: false, description: "Vol illimité, sans décompte" }
+  aafly.bypass.rules: { default: false, description: "Ignore les règles de vol" }
+  aafly.group.default: { default: true, description: "Groupe timed-fly « default » (sans LuckPerms)" }
+  wfly.infinite.fly: { default: false, description: "Alias wFly de aafly.unlimited (compat.wfly-permissions)" }
+  wfly.bypass.fly: { default: false, description: "Alias wFly de aafly.bypass.rules (compat.wfly-permissions)" }
+  aafly.admin: { default: op, description: "Aide d'administration" }
+  aafly.admin.time: { default: op, description: "/aafly add|remove|set|reset" }
+  aafly.admin.time.all: { default: op, description: "/aafly addall|removeall" }
+  aafly.admin.toggle: { default: op, description: "/aafly activate|deactivate|toggle" }
+  aafly.admin.status: { default: op, description: "/aafly status" }
+  aafly.admin.token: { default: op, description: "/aafly convert" }
+  aafly.admin.reload: { default: op, description: "/aafly reload" }
+  aafly.admin.about: { default: op, description: "/aafly about" }

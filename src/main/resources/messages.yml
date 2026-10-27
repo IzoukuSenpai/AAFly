@@ -1,0 +1,157 @@
+# AAFly — messages (format MiniMessage ; les codes legacy &a et &#RRGGBB sont aussi acceptés).
+# Developped by AzurHOSTS.com and powered by AzurWare.fr.
+# <prefix> insère le préfixe. Les valeurs dynamiques (<player>, <time>, ...) sont toujours échappées.
+# Un message vide ("") n'est pas envoyé. Les clés manquantes sont ajoutées automatiquement.
+config-version: 1
+prefix: "<dark_gray>[<aqua>AAFly</aqua>]</dark_gray> <gray>"
+
+errors:
+  no-permission: "<prefix><red>Vous n'avez pas la permission."
+  player-only: "<prefix><red>Cette commande est réservée aux joueurs."
+  player-not-found: "<prefix><red>Joueur <white><player></white> <red>introuvable."
+  invalid-player-name: "<prefix><red>Nom de joueur invalide."
+  invalid-time: "<prefix><red>Durée invalide : <white><input></white><red>. Exemples : <white>90</white>, <white>1h30m</white>, <white>2d</white>."
+  time-out-of-bounds: "<prefix><red>La durée doit être comprise entre <white><min></white> <red>et <white><max></white><red>."
+  unknown-subcommand: "<prefix><red>Sous-commande inconnue. Faites <white>/<label> help</white><red>."
+  usage: "<prefix><red>Usage : <white><usage>"
+  storage: "<prefix><red>Erreur de stockage, réessayez plus tard."
+  feature-disabled: "<prefix><red>Cette fonctionnalité est désactivée."
+  timed-fly-locked: "<prefix><red>Le mode timed-fly gère le temps de vol : modification impossible."
+  profile-loading: "<prefix><red>Profil en cours de chargement, réessayez dans un instant."
+  cancelled: "<prefix><red>Action annulée."
+
+fly:
+  enabled: "<prefix><green>Vol activé. <gray>Temps restant : <time>"
+  enabled-unlimited: "<prefix><green>Vol activé <gray>(illimité)."
+  disabled: "<prefix><red>Vol désactivé."
+  no-time: "<prefix><red>Vous n'avez plus de temps de vol."
+  already-enabled: "<prefix><yellow>Votre vol est déjà activé."
+  already-disabled: "<prefix><yellow>Votre vol est déjà désactivé."
+  expired: "<prefix><red>Votre temps de vol est écoulé."
+  not-allowed-here: "<prefix><red>Le vol n'est pas autorisé ici."
+  nearby-enemy: "<prefix><red>Un joueur ennemi est proche : vol coupé."
+  reactivated: "<prefix><green>Vol réactivé."
+  world-change: "<prefix><yellow>Vol désactivé (changement de monde)."
+  gamemode-change: "<prefix><yellow>Vol désactivé (changement de mode de jeu)."
+  restored: "<prefix><green>Votre vol a été restauré. <gray>Temps restant : <time>"
+  toggle-cooldown: "<prefix><red>Patientez un instant avant de basculer à nouveau votre vol."
+
+time:
+  self: "<prefix>Temps de vol restant : <time>"
+  other: "<prefix>Temps de vol de <white><player></white> : <time>"
+  self-unlimited: "<prefix>Temps de vol : <aqua>illimité"
+  other-unlimited: "<prefix>Temps de vol de <white><player></white> : <aqua>illimité"
+
+give:
+  sent: "<prefix><green>Vous avez donné <time> <green>de vol à <white><player></white><green>."
+  received: "<prefix><white><player></white> <green>vous a donné <time> <green>de vol."
+  insufficient: "<prefix><red>Vous n'avez pas assez de temps de vol."
+  self: "<prefix><red>Vous ne pouvez pas vous donner du temps à vous-même."
+  cooldown: "<prefix><red>Patientez encore <time> <red>avant de redonner du temps."
+  target-offline: "<prefix><red>Le joueur <white><player></white> <red>doit être en ligne."
+  unlimited: "<prefix><red>Un temps de vol illimité ne peut pas être donné."
+
+token:
+  created: "<prefix><green>Jeton de <time> <green>créé."
+  created-admin: "<prefix><green>Jeton de <time> <green>donné à <white><player></white><green>."
+  redeemed: "<prefix><green>Jeton encaissé : +<time>"
+  invalid: "<prefix><red>Ce jeton est invalide."
+  already-redeemed: "<prefix><red>Ce jeton a déjà été encaissé."
+  insufficient: "<prefix><red>Vous n'avez pas assez de temps de vol pour créer ce jeton."
+  inventory-full: "<prefix><yellow>Inventaire plein : le jeton a été déposé à vos pieds."
+  error: "<prefix><red>Impossible de traiter le jeton, réessayez plus tard."
+  limit-exceeded: "<prefix><red>Ce jeton dépasserait votre temps de vol maximal."
+  cooldown: "<prefix><red>Patientez encore <time> <red>avant de créer un autre jeton."
+
+timed-fly:
+  cooldown: "<prefix><red>Recharge du vol en cours : <time>"
+  refilled: "<prefix><green>Votre temps de vol a été rechargé : <time>"
+  no-group: "<prefix><red>Aucun groupe timed-fly ne vous correspond."
+
+speed:
+  set: "<prefix><green>Vitesse de vol réglée sur <white><level></white><green>."
+  invalid: "<prefix><red>Vitesse invalide : choisissez entre <white>1</white> <red>et <white><max></white><red>."
+
+admin:
+  added: "<prefix><green>+<time> <green>pour <white><player></white> <gray>(total : <total><gray>)."
+  removed: "<prefix><green>-<time> <green>pour <white><player></white> <gray>(total : <total><gray>)."
+  set: "<prefix><green>Temps de <white><player></white> <green>réglé sur <time><green>."
+  reset: "<prefix><green>Temps de <white><player></white> <green>remis à zéro."
+  added-all: "<prefix><green>+<time> <green>pour <white><count></white> <green>joueur(s) en ligne."
+  removed-all: "<prefix><green>-<time> <green>pour <white><count></white> <green>joueur(s) en ligne."
+  activated: "<prefix><green>Vol activé pour <white><player></white><green>."
+  deactivated: "<prefix><green>Vol désactivé pour <white><player></white><green>."
+  activate-failed: "<prefix><red>Impossible d'activer le vol de <white><player></white> <red>(<reason>)."
+  unknown-player: "<prefix><red>Joueur <white><player></white> <red>inconnu : il doit s'être connecté au moins une fois."
+  reload-success: "<prefix><green>Configuration, messages et règles rechargés."
+  reload-failed: "<prefix><red>Échec du rechargement : <white><error></white><red>. L'ancienne configuration est conservée."
+  reload-storage-note: "<prefix><yellow>Le stockage n'est pas rechargé à chaud : redémarrez le serveur pour le changer."
+  status:
+    - "<prefix><aqua>Statut de <white><player></white>"
+    - "<gray>Temps restant : <time>"
+    - "<gray>Vol activé : <white><enabled>"
+    - "<gray>En vol : <white><flying>"
+    - "<gray>Illimité : <white><unlimited>"
+    - "<gray>Vitesse : <white><speed>"
+    - "<gray>Suspendu : <white><suspended>"
+  about:
+    - "<aqua>AAFly <white><version></white> <gray>— vol temporisé par <aqua>AzurHOSTS</aqua>"
+    - "<gray>Stockage : <white><storage>"
+    - "<gray>Ticker : <white><ticker>"
+    - "<dark_gray>Developped by AzurHOSTS.com and powered by AzurWare.fr."
+
+target:
+  added: "<prefix><green>Vous avez reçu <time> <green>de vol."
+  removed: "<prefix><yellow>Votre temps de vol a été réduit de <time><yellow>."
+  set: "<prefix><yellow>Votre temps de vol a été réglé sur <time><yellow>."
+  reset: "<prefix><yellow>Votre temps de vol a été remis à zéro."
+  activated: "<prefix><green>Un administrateur a activé votre vol."
+  deactivated: "<prefix><yellow>Un administrateur a désactivé votre vol."
+
+help:
+  player:
+    - "<aqua><bold>AAFly</bold> <gray>— aide"
+    - "<white>/fly</white> <gray>active ou désactive le vol"
+    - "<white>/fly time [joueur]</white> <gray>affiche le temps restant"
+    - "<white>/fly give \\<joueur> \\<temps></white> <gray>donne du temps de vol"
+    - "<white>/fly convert \\<temps></white> <gray>convertit du temps en jeton"
+    - "<white>/flyspeed \\<1-10></white> <gray>règle la vitesse de vol"
+  admin:
+    - "<aqua><bold>AAFly</bold> <gray>— administration"
+    - "<white>/aafly add|remove|set \\<joueur> \\<temps> [-s]</white>"
+    - "<white>/aafly reset \\<joueur> [-s]</white>"
+    - "<white>/aafly addall|removeall \\<temps> [-s]</white>"
+    - "<white>/aafly activate|deactivate|toggle \\<joueur></white>"
+    - "<white>/aafly status \\<joueur></white>"
+    - "<white>/aafly convert \\<joueur> \\<temps></white>"
+    - "<white>/aafly reload</white> <gray>|</gray> <white>/aafly about</white>"
+
+# Listes d'actions ("[type] contenu") : message, actionbar, title (titre;sous-titre),
+# subtitle, command (console), player (si actions.allow-player-commands), sound (NOM[;volume;pitch]).
+# Variables : %player%, %uuid%, %remaining% (durée formatée), %remaining_seconds% (entier, pour les
+# commandes), puis PlaceholderAPI.
+on-enable: []
+on-disable: []
+on-expire:
+  - "[title] <red>Vol terminé;<gray>Votre temps de vol est écoulé"
+not-allowed-here:
+  - "[actionbar] <red>Le vol n'est pas autorisé ici"
+
+# Actions déclenchées quand le temps restant atteint un seuil (en secondes), une fois par passage.
+commands-time-remaining:
+  60:
+    - "[message] <prefix><yellow>Plus qu'une minute de vol !"
+  30:
+    - "[message] <prefix><yellow>Plus que 30 secondes de vol !"
+  10:
+    - "[message] <prefix><gold>Plus que 10 secondes de vol !"
+    - "[sound] BLOCK_NOTE_BLOCK_PLING;1.0;1.0"
+  5:
+    - "[actionbar] <red>Vol : 5 secondes"
+  3:
+    - "[actionbar] <red>Vol : 3 secondes"
+  2:
+    - "[actionbar] <red>Vol : 2 secondes"
+  1:
+    - "[actionbar] <red>Vol : 1 seconde"
+    - "[sound] BLOCK_NOTE_BLOCK_BASS;1.0;0.5"

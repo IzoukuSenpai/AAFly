@@ -1,0 +1,6 @@
+# Bibliothèques runtime d'AAFly, résolues par AAFlyLoader (Paper MavenLibraryResolver).
+# Les versions sont injectées au build depuis gradle/libs.versions.toml : ne pas les éditer ici.
+com.zaxxer:HikariCP:${hikaricpVersion}
+org.xerial:sqlite-jdbc:${sqliteJdbcVersion}
+com.mysql:mysql-connector-j:${mysqlConnectorVersion}
+org.spongepowered:configurate-yaml:${configurateVersion}
