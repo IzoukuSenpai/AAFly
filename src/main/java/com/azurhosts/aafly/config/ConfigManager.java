@@ -184,6 +184,14 @@ public final class ConfigManager {
         } catch (SerializationException e) {
             throw new ConfigException(fileName + " : impossible de compléter les clés (" + e.getMessage() + ")", e);
         }
+        // SPEC-phase2 A7 : clés inconnues signalées (WARN), jamais supprimées.
+        List<String> unknown = new ArrayList<>();
+        collectUnknown(root, defaults, "", noDeepMerge, unknown);
+        if (!unknown.isEmpty()) {
+            logger.warning(fileName + " : " + unknown.size() + " clé(s) inconnue(s) ignorée(s) (conservées dans le "
+                    + "fichier) : " + String.join(", ", unknown.subList(0, Math.min(unknown.size(), 20)))
+                    + (unknown.size() > 20 ? ", …" : ""));
+        }
         if (!added.isEmpty()) {
             logger.info(fileName + " : " + added.size() + " clé(s) manquante(s) ajoutée(s) : " + String.join(", ", added));
             try {
@@ -216,6 +224,26 @@ public final class ConfigManager {
                 added.add(childPath);
             } else if (def.isMap() && tgt.isMap() && !noDeepMerge.contains(childPath)) {
                 addMissing(tgt, def, childPath, noDeepMerge, added);
+            }
+        }
+    }
+
+    /**
+     * Relève les clés de {@code target} absentes de {@code defaults} (sections libres de {@code noDeepMerge}
+     * exclues : règles, groupes, seuils...). Ne modifie rien.
+     */
+    static void collectUnknown(ConfigurationNode target, ConfigurationNode defaults, String path,
+                               Set<String> noDeepMerge, List<String> unknown) {
+        if (!target.isMap() || !defaults.isMap()) {
+            return;
+        }
+        for (Map.Entry<Object, ? extends ConfigurationNode> e : target.childrenMap().entrySet()) {
+            String childPath = path.isEmpty() ? String.valueOf(e.getKey()) : path + "." + e.getKey();
+            ConfigurationNode def = defaults.node(e.getKey());
+            if (def.virtual()) {
+                unknown.add(childPath);
+            } else if (!noDeepMerge.contains(childPath)) {
+                collectUnknown(e.getValue(), def, childPath, noDeepMerge, unknown);
             }
         }
     }
@@ -287,7 +315,9 @@ public final class ConfigManager {
                 section(root, "compat", Settings.CompatSection.class),
                 section(root, "commands", Settings.CommandsSection.class),
                 flyRules,
-                decrementRules);
+                decrementRules,
+                section(root, "api", Settings.ApiSection.class),
+                section(root, "integrations", Settings.IntegrationsSection.class));
     }
 
     private static <T> @Nullable T section(ConfigurationNode root, String key, Class<T> type) throws ConfigException {
@@ -366,6 +396,7 @@ public final class ConfigManager {
         if (!Double.isFinite(speed) || speed < 0.1D || speed > 1.0D) {
             errors.add("flight.default-speed doit être compris entre 0.1 et 1.0");
         }
+        range(errors, "flight.safe-landing.max-scan", s.flight().safeLanding().maxScan(), 1, 4_096);
 
         if (s.actionbar().message().length() > 512) {
             errors.add("actionbar.message trop long (512 caractères max.)");

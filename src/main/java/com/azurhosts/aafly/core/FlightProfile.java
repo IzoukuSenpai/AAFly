@@ -1,5 +1,6 @@
 package com.azurhosts.aafly.core;
 
+import com.azurhosts.aafly.api.DisableCause;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.regex.Pattern;

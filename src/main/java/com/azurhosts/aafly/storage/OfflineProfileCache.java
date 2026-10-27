@@ -4,12 +4,14 @@ import com.azurhosts.aafly.core.FlightProfile;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 import org.jspecify.annotations.Nullable;
 
@@ -41,6 +43,9 @@ public final class OfflineProfileCache {
     private final long ttlMillis;
     private final LongSupplier clock;
     private final LinkedHashMap<UUID, Entry> entries = new LinkedHashMap<>(64, 0.75f, true);
+    /** Index sans effet sur l'ordre LRU : {@link #peek(UUID)} et {@link #contains(FlightProfile)} en O(1). */
+    private final Map<UUID, Entry> index = new HashMap<>();
+    private Consumer<FlightProfile> expiryListener = p -> { };
 
     /** Cache aux valeurs par défaut, horloge système. */
     public OfflineProfileCache() {
@@ -73,6 +78,8 @@ public final class OfflineProfileCache {
         long now = clock.getAsLong();
         if (now - e.lastAccessMillis >= ttlMillis && !e.profile.isDirty()) {
             entries.remove(uuid);
+            index.remove(uuid);
+            expiryListener.accept(e.profile);
             return null;
         }
         e.lastAccessMillis = now;
@@ -84,13 +91,28 @@ public final class OfflineProfileCache {
      * @return profil sans rafraîchir l'accès ni l'ordre LRU, ou {@code null}
      */
     public @Nullable FlightProfile peek(UUID uuid) {
-        // LinkedHashMap en ordre d'accès : get() modifierait l'ordre, on parcourt donc la vue des valeurs.
-        for (Map.Entry<UUID, Entry> e : entries.entrySet()) {
-            if (e.getKey().equals(uuid)) {
-                return e.getValue().profile;
-            }
-        }
-        return null;
+        // LinkedHashMap en ordre d'accès : get() modifierait l'ordre, on passe donc par l'index.
+        Entry e = index.get(uuid);
+        return e == null ? null : e.profile;
+    }
+
+    /**
+     * @param profile instance
+     * @return {@code true} si cette instance précise est en cache (sans rafraîchir l'accès)
+     */
+    public boolean contains(FlightProfile profile) {
+        Entry e = index.get(profile.uuid());
+        return e != null && e.profile == profile;
+    }
+
+    /**
+     * Fixe l'écouteur appelé quand {@link #get(UUID)} retire une entrée expirée et propre (l'instance quitte
+     * la mémoire sans passer par l'appelant).
+     *
+     * @param listener écouteur (main thread)
+     */
+    public void setExpiryListener(Consumer<FlightProfile> listener) {
+        this.expiryListener = Objects.requireNonNull(listener, "listener");
     }
 
     /**
@@ -101,7 +123,9 @@ public final class OfflineProfileCache {
      */
     public List<FlightProfile> put(FlightProfile profile) {
         Objects.requireNonNull(profile, "profile");
-        entries.put(profile.uuid(), new Entry(profile, clock.getAsLong()));
+        Entry added = new Entry(profile, clock.getAsLong());
+        entries.put(profile.uuid(), added);
+        index.put(profile.uuid(), added);
         if (entries.size() <= maxSize) {
             return List.of();
         }
@@ -113,6 +137,7 @@ public final class OfflineProfileCache {
                 continue;
             }
             it.remove();
+            index.remove(eldest.getKey());
             evicted.add(eldest.getValue().profile);
         }
         return evicted;
@@ -124,6 +149,7 @@ public final class OfflineProfileCache {
      */
     public @Nullable FlightProfile remove(UUID uuid) {
         Entry e = entries.remove(uuid);
+        index.remove(uuid);
         return e == null ? null : e.profile;
     }
 
@@ -135,13 +161,15 @@ public final class OfflineProfileCache {
     public List<FlightProfile> evictExpired() {
         long now = clock.getAsLong();
         List<FlightProfile> evicted = new ArrayList<>();
-        Iterator<Entry> it = entries.values().iterator();
+        Iterator<Map.Entry<UUID, Entry>> it = entries.entrySet().iterator();
         while (it.hasNext()) {
-            Entry e = it.next();
+            Map.Entry<UUID, Entry> me = it.next();
+            Entry e = me.getValue();
             if (now - e.lastAccessMillis < ttlMillis) {
                 break; // ordre d'accès : les suivants sont plus récents
             }
             it.remove();
+            index.remove(me.getKey());
             evicted.add(e.profile);
         }
         return evicted;
@@ -168,5 +196,6 @@ public final class OfflineProfileCache {
     /** Vide le cache. */
     public void clear() {
         entries.clear();
+        index.clear();
     }
 }

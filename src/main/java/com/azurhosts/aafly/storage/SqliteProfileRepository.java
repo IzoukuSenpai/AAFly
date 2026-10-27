@@ -24,18 +24,23 @@ public final class SqliteProfileRepository extends AbstractSqlProfileRepository 
     /** Nom du fichier de base dans le dossier du plugin. */
     public static final String DEFAULT_FILE_NAME = "aafly.db";
 
-    private static final String UPSERT_SQL =
-            "INSERT INTO aafly_profiles (" + PROFILE_COLUMNS + ") VALUES (?, ?, ?, ?, ?, ?, ?)"
-                    + " ON CONFLICT(uuid) DO UPDATE SET"
-                    + " name = excluded.name,"
-                    + " remaining_seconds = excluded.remaining_seconds,"
-                    + " flight_enabled = excluded.flight_enabled,"
-                    + " last_update = excluded.last_update,"
-                    + " cooldown_until = excluded.cooldown_until,"
-                    + " fly_speed = excluded.fly_speed";
+    /** Insertion si absente : 0 ligne si la ligne existe déjà (conflit). */
+    private static final String INSERT_IF_ABSENT_SQL =
+            "INSERT INTO aafly_profiles (" + PROFILE_COLUMNS + ", version) VALUES (?, ?, ?, ?, ?, ?, ?, 1)"
+                    + " ON CONFLICT(uuid) DO NOTHING";
+
+    private static final String LOCKING_READ_SQL =
+            "SELECT remaining_seconds, version FROM aafly_profiles WHERE uuid = ?";
+
+    private static final String SERVER_UPSERT_SQL =
+            "INSERT INTO aafly_server (\"key\", \"value\") VALUES (?, ?)"
+                    + " ON CONFLICT(\"key\") DO UPDATE SET \"value\" = excluded.\"value\"";
+
+    private static final String SERVER_SELECT_SQL =
+            "SELECT \"value\" FROM aafly_server WHERE \"key\" = ?";
 
     private static final String FIND_BY_NAME_SQL =
-            "SELECT " + PROFILE_COLUMNS + " FROM aafly_profiles WHERE name = ? COLLATE NOCASE"
+            "SELECT " + SELECT_COLUMNS + " FROM aafly_profiles WHERE name = ? COLLATE NOCASE"
                     + " ORDER BY last_update DESC LIMIT 1";
 
     private static final SchemaMigrator.Dialect DIALECT = new SchemaMigrator.Dialect() {
@@ -50,9 +55,9 @@ public final class SqliteProfileRepository extends AbstractSqlProfileRepository 
         }
 
         @Override
-        public List<String> migration(int version) {
+        public List<SchemaMigrator.Step> migration(int version) {
             if (version == 1) {
-                return List.of(
+                return List.of(new SchemaMigrator.Sql(
                         "CREATE TABLE IF NOT EXISTS aafly_profiles ("
                                 + "uuid CHAR(36) NOT NULL PRIMARY KEY,"
                                 + " name VARCHAR(16) NOT NULL DEFAULT '',"
@@ -60,16 +65,24 @@ public final class SqliteProfileRepository extends AbstractSqlProfileRepository 
                                 + " flight_enabled BOOLEAN NOT NULL DEFAULT 0,"
                                 + " last_update BIGINT NOT NULL DEFAULT 0,"
                                 + " cooldown_until BIGINT NOT NULL DEFAULT 0,"
-                                + " fly_speed DOUBLE NOT NULL DEFAULT 0.1)",
-                        "CREATE INDEX IF NOT EXISTS idx_aafly_profiles_name"
-                                + " ON aafly_profiles (name COLLATE NOCASE)",
-                        "CREATE TABLE IF NOT EXISTS aafly_tokens ("
+                                + " fly_speed DOUBLE NOT NULL DEFAULT 0.1)"),
+                        new SchemaMigrator.Sql("CREATE INDEX IF NOT EXISTS idx_aafly_profiles_name"
+                                + " ON aafly_profiles (name COLLATE NOCASE)"),
+                        new SchemaMigrator.Sql("CREATE TABLE IF NOT EXISTS aafly_tokens ("
                                 + "token_id CHAR(36) NOT NULL PRIMARY KEY,"
                                 + " seconds BIGINT NOT NULL,"
                                 + " created_by CHAR(36) NULL,"
                                 + " created_at BIGINT NOT NULL,"
                                 + " redeemed_by CHAR(36) NULL,"
-                                + " redeemed_at BIGINT NULL)");
+                                + " redeemed_at BIGINT NULL)"));
+            }
+            if (version == 2) {
+                return List.of(
+                        new SchemaMigrator.AddColumn("aafly_profiles", "version",
+                                "ALTER TABLE aafly_profiles ADD COLUMN version BIGINT NOT NULL DEFAULT 0"),
+                        new SchemaMigrator.Sql("CREATE TABLE IF NOT EXISTS aafly_server ("
+                                + "\"key\" VARCHAR(64) NOT NULL PRIMARY KEY,"
+                                + " \"value\" BIGINT NOT NULL)"));
             }
             throw new IllegalArgumentException("Migration SQLite inconnue : " + version);
         }
@@ -127,13 +140,28 @@ public final class SqliteProfileRepository extends AbstractSqlProfileRepository 
     }
 
     @Override
-    protected String upsertSql() {
-        return UPSERT_SQL;
+    protected String findByNameSql() {
+        return FIND_BY_NAME_SQL;
     }
 
     @Override
-    protected String findByNameSql() {
-        return FIND_BY_NAME_SQL;
+    protected String insertIfAbsentSql() {
+        return INSERT_IF_ABSENT_SQL;
+    }
+
+    @Override
+    protected String lockingReadSql() {
+        return LOCKING_READ_SQL;
+    }
+
+    @Override
+    protected String serverUpsertSql() {
+        return SERVER_UPSERT_SQL;
+    }
+
+    @Override
+    protected String serverSelectSql() {
+        return SERVER_SELECT_SQL;
     }
 
     @Override

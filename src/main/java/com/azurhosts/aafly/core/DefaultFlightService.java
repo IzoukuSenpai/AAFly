@@ -1,5 +1,6 @@
 package com.azurhosts.aafly.core;
 
+import com.azurhosts.aafly.api.DisableCause;
 import com.azurhosts.aafly.action.Action;
 import com.azurhosts.aafly.action.ActionExecutor;
 import com.azurhosts.aafly.action.TimeThresholdNotifier;
@@ -30,8 +31,10 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
+import org.bukkit.NamespacedKey;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
+import org.bukkit.persistence.PersistentDataType;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -60,6 +63,15 @@ public final class DefaultFlightService implements FlightService {
     /** Opérations sur le temps. */
     private enum Op { ADD, REMOVE, SET, RESET }
 
+    /**
+     * Marqueur persistant de propriété du vol (SPEC-phase2 B3), stocké dans le {@code PersistentDataContainer}
+     * du joueur, donc dans le <b>même fichier playerdata</b> que le drapeau vanilla {@code mayfly} : il prouve,
+     * à la connexion suivante, que le {@code mayfly} sauvegardé a été accordé par AAFly (et non par AAItems, un
+     * autre plugin ou le mode de jeu). Posé par {@link #startFlight}, retiré quand AAFly cède la propriété.
+     */
+    public static final NamespacedKey OWNS_FLIGHT_KEY =
+            Objects.requireNonNull(NamespacedKey.fromString("aafly:owns_flight"), "aafly:owns_flight");
+
     /** Fenêtre (ms) pendant laquelle un refus répété par la même règle n'exécute pas à nouveau ses actions. */
     private static final long DENIED_ACTIONS_WINDOW_MILLIS = 3_000L;
     /** Taille au-delà de laquelle les entrées expirées de {@link #deniedNotices} sont purgées. */
@@ -85,6 +97,8 @@ public final class DefaultFlightService implements FlightService {
     private final SafeLanding landing;
     private final FlySpeedService speed;
     private final NearbyEnemyDetector nearby;
+    /** Vols physiques accordés par AAFly (SPEC-phase2 B3 : AAFly ne retire que ceux-là). */
+    private final FlightOwnership ownership = new FlightOwnership();
 
     /**
      * @param logger       logger du plugin
@@ -140,7 +154,10 @@ public final class DefaultFlightService implements FlightService {
     private ToggleResult doEnable(Player player, FlightProfile profile, DisableCause cause, boolean silent,
                                   boolean force) {
         boolean wasSuspended = profile.isSuspended();
-        if (!force && profile.flightEnabled() && !wasSuspended && player.getAllowFlight()) {
+        // B3 : « déjà activé » seulement si le vol physique est bien celui d'AAFly ; un allowFlight posé par un
+        // autre plugin ne dispense pas des vérifications et AAFly en devient propriétaire.
+        if (!force && profile.flightEnabled() && !wasSuspended && player.getAllowFlight()
+                && ownership.owns(player.getUniqueId())) {
             return ToggleResult.ALREADY;
         }
         long now = nowSeconds();
@@ -388,6 +405,12 @@ public final class DefaultFlightService implements FlightService {
     }
 
     @Override
+    public CompletableFuture<TimeChangeResult> setTime(UUID uuid, long seconds, @Nullable CommandSender actor,
+                                                        FlightTimeChangeEvent.Reason reason, @Nullable String source) {
+        return change(uuid, Op.SET, seconds, actor, Objects.requireNonNull(reason, "reason"), source);
+    }
+
+    @Override
     public int addAll(long seconds, @Nullable CommandSender actor) {
         return changeAll(Op.ADD, seconds, actor);
     }
@@ -414,6 +437,12 @@ public final class DefaultFlightService implements FlightService {
 
     private CompletableFuture<TimeChangeResult> change(UUID uuid, Op op, long amount, @Nullable CommandSender actor,
                                                       FlightTimeChangeEvent.Reason reason) {
+        return change(uuid, op, amount, actor, reason, null);
+    }
+
+    /** @param source identifiant du plugin appelant (API), transmis dans {@code FlightTimeChangeEvent} */
+    private CompletableFuture<TimeChangeResult> change(UUID uuid, Op op, long amount, @Nullable CommandSender actor,
+                                                      FlightTimeChangeEvent.Reason reason, @Nullable String source) {
         Objects.requireNonNull(uuid, "uuid");
         if (!validAmount(op, amount)) {
             return CompletableFuture.completedFuture(TimeChangeResult.failure(TimeChangeResult.Status.INVALID_AMOUNT, uuid));
@@ -424,7 +453,7 @@ public final class DefaultFlightService implements FlightService {
         }
         FlightProfile online = storage.cached(uuid);
         if (online != null) {
-            return CompletableFuture.completedFuture(applyChange(online, op, amount, actor, reason));
+            return CompletableFuture.completedFuture(applyChange(online, op, amount, actor, reason, source));
         }
         CompletableFuture<TimeChangeResult> out = new CompletableFuture<>();
         storage.loadExisting(uuid).whenComplete((found, error) -> runOnMain(() -> {
@@ -441,7 +470,8 @@ public final class DefaultFlightService implements FlightService {
                 // Le joueur a pu se connecter entre-temps : le profil en ligne fait foi.
                 FlightProfile cached = storage.cached(uuid);
                 boolean offline = cached == null;
-                TimeChangeResult result = applyChange(offline ? found.get() : cached, op, amount, actor, reason);
+                TimeChangeResult result = applyChange(offline ? found.get() : cached, op, amount, actor, reason,
+                        source);
                 if (result.success() && offline) {
                     storage.save(uuid).exceptionally(t -> {
                         logger.log(Level.WARNING, "Sauvegarde du profil hors-ligne " + uuid + " en erreur", t);
@@ -468,6 +498,11 @@ public final class DefaultFlightService implements FlightService {
 
     private TimeChangeResult applyChange(FlightProfile profile, Op op, long amount, @Nullable CommandSender actor,
                                          FlightTimeChangeEvent.Reason reason) {
+        return applyChange(profile, op, amount, actor, reason, null);
+    }
+
+    private TimeChangeResult applyChange(FlightProfile profile, Op op, long amount, @Nullable CommandSender actor,
+                                         FlightTimeChangeEvent.Reason reason, @Nullable String source) {
         UUID uuid = profile.uuid();
         long max = maxSeconds();
         long old = profile.remainingSeconds();
@@ -479,7 +514,7 @@ public final class DefaultFlightService implements FlightService {
         };
         long proposed = TimeMath.clamp(ideal, max);
         Player online = Bukkit.getPlayer(uuid);
-        FlightTimeChangeEvent event = new FlightTimeChangeEvent(uuid, online, actor, reason, old, proposed);
+        FlightTimeChangeEvent event = new FlightTimeChangeEvent(uuid, online, actor, reason, source, old, proposed);
         Bukkit.getPluginManager().callEvent(event);
         if (event.isCancelled()) {
             return new TimeChangeResult(TimeChangeResult.Status.CANCELLED, uuid, old, old, profile);
@@ -549,7 +584,7 @@ public final class DefaultFlightService implements FlightService {
         if (!player.hasPermission(permission)) {
             return false;
         }
-        return !player.isOp() || player.isPermissionSet(permission);
+        return DecrementPolicy.permissionGranted(true, player.isOp(), player.isPermissionSet(permission));
     }
 
     // ------------------------------------------------------------------ état
@@ -599,7 +634,23 @@ public final class DefaultFlightService implements FlightService {
         storage.markDirty(profile);
         speed.apply(player, profile);
 
+        // B3 + sécurité : seul le marqueur persistant aafly:owns_flight (sauvegardé avec mayfly) prouve que le vol
+        // vanilla restauré a été accordé par AAFly (déconnexion en vol, crash, autre serveur du réseau). Sans lui,
+        // AAFly ne touche ni allowFlight ni flying (vol éventuellement accordé par AAItems ou un autre plugin).
+        GameMode restoreMode = player.getGameMode();
+        boolean nativeMode = restoreMode == GameMode.CREATIVE || restoreMode == GameMode.SPECTATOR;
+        boolean ownedMayfly = hasOwnershipMarker(player) && player.getAllowFlight() && !nativeMode;
+        if (ownedMayfly) {
+            ownership.claim(player.getUniqueId());
+        } else {
+            clearOwnershipMarker(player);
+        }
         if (!profile.flightEnabled()) {
+            if (ownedMayfly) {
+                // Vol AAFly sauvegardé actif mais plus voulu (expiré ou /fly off sur un autre serveur, ou état
+                // AAFly écrit avant le playerdata) : jamais de vol gratuit, on le retire (atterrissage sécurisé).
+                stopFlight(player);
+            }
             return;
         }
         if (exhaustedOffline) {
@@ -658,6 +709,10 @@ public final class DefaultFlightService implements FlightService {
      */
     public void startFlight(Player player, FlightProfile profile) {
         player.setAllowFlight(true);
+        // B3 : AAFly devient propriétaire du vol qu'il accorde (même si un autre plugin l'avait déjà accordé),
+        // marqueur persistant compris (sauvegardé avec mayfly, relu à la connexion).
+        ownership.claim(player.getUniqueId());
+        setOwnershipMarker(player);
         if (DefaultSafeLanding.isAirborne(player)) {
             player.setFlying(true);
         }
@@ -665,13 +720,18 @@ public final class DefaultFlightService implements FlightService {
     }
 
     /**
-     * Coupe physiquement le vol (sauf creative/spectator) puis atterrissage sécurisé si configuré.
+     * Coupe physiquement le vol <b>accordé par AAFly</b> (SPEC-phase2 B3) puis atterrissage sécurisé si configuré.
+     * Si AAFly ne possède pas le vol (accordé par un autre plugin, déjà retiré par un tiers), ni
+     * {@code allowFlight} ni {@code flying} ne sont modifiés. Jamais en creative/spectator (vol natif) : la
+     * propriété est alors simplement cédée.
      *
      * @param player joueur
      */
     public void stopFlight(Player player) {
         GameMode gm = player.getGameMode();
-        if (gm == GameMode.CREATIVE || gm == GameMode.SPECTATOR) {
+        boolean owned = ownership.release(player.getUniqueId());
+        clearOwnershipMarker(player);
+        if (!FlightOwnership.mayRevoke(owned, gm == GameMode.CREATIVE || gm == GameMode.SPECTATOR)) {
             return;
         }
         boolean airborne = player.isFlying() || DefaultSafeLanding.isAirborne(player);
@@ -680,6 +740,79 @@ public final class DefaultFlightService implements FlightService {
         if (airborne && settings.get().flight().tpOnFloorWhenDisabled()) {
             landing.land(player);
         }
+    }
+
+    /**
+     * @param uuid joueur
+     * @return {@code true} si le vol physique de ce joueur a été accordé par AAFly (B3)
+     */
+    @Override
+    public boolean ownsFlight(UUID uuid) {
+        return ownership.owns(uuid);
+    }
+
+    /**
+     * Un tiers a retiré {@code allowFlight} au vol accordé par AAFly (constaté par le ticker) : AAFly cède la
+     * propriété, marqueur persistant compris, sans toucher à l'état physique du joueur.
+     *
+     * @param player joueur en ligne
+     */
+    public void releaseLostFlight(Player player) {
+        ownership.release(player.getUniqueId());
+        clearOwnershipMarker(player);
+    }
+
+    private static boolean hasOwnershipMarker(Player player) {
+        return player.getPersistentDataContainer().has(OWNS_FLIGHT_KEY);
+    }
+
+    private static void setOwnershipMarker(Player player) {
+        player.getPersistentDataContainer().set(OWNS_FLIGHT_KEY, PersistentDataType.BYTE, (byte) 1);
+    }
+
+    private static void clearOwnershipMarker(Player player) {
+        player.getPersistentDataContainer().remove(OWNS_FLIGHT_KEY);
+    }
+
+    /**
+     * @return registre de propriété du vol (main thread)
+     */
+    public FlightOwnership ownership() {
+        return ownership;
+    }
+
+    /**
+     * Arrêt du plugin (B3) : retire physiquement <b>uniquement</b> les vols accordés par AAFly aux joueurs en
+     * ligne (pas de vol gratuit plugin désactivé) ; l'état voulu reste persisté et sera restauré. Les vols
+     * accordés par d'autres plugins ne sont pas touchés.
+     *
+     * @return nombre de vols retirés
+     */
+    public int revokeOwnedFlights() {
+        int count = 0;
+        for (UUID id : ownership.snapshot()) {
+            Player player = Bukkit.getPlayer(id);
+            if (player == null || !player.isOnline()) {
+                ownership.forget(id);
+                continue;
+            }
+            try {
+                stopFlight(player);
+                count++;
+            } catch (RuntimeException e) {
+                logger.log(Level.WARNING, "Coupure du vol de " + player.getName() + " à l'arrêt en erreur", e);
+            }
+        }
+        return count;
+    }
+
+    /**
+     * Déconnexion : oublie l'état runtime de coexistence du joueur (sans toucher à son état physique).
+     *
+     * @param uuid joueur
+     */
+    public void forgetPlayer(UUID uuid) {
+        ownership.forget(uuid);
     }
 
     // ------------------------------------------------------------------ utilitaires

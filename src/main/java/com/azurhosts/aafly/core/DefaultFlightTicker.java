@@ -1,5 +1,6 @@
 package com.azurhosts.aafly.core;
 
+import com.azurhosts.aafly.api.DisableCause;
 import com.azurhosts.aafly.action.TimeThresholdNotifier;
 import com.azurhosts.aafly.config.Lang;
 import com.azurhosts.aafly.config.Settings;
@@ -15,6 +16,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -208,7 +210,13 @@ public final class DefaultFlightTicker implements FlightTicker {
                             boolean pvpTick) {
         GameMode gm = player.getGameMode();
         if (gm == GameMode.CREATIVE || gm == GameMode.SPECTATOR) {
-            return;
+            return; // A4 : vol natif du mode de jeu, aucun décompte
+        }
+        // B3 : AAFly possédait le vol mais un tiers a retiré allowFlight → AAFly cède la propriété (il ne
+        // décomptera ni ne retirera un vol ré-accordé ensuite par un autre plugin).
+        UUID ownerId = player.getUniqueId();
+        if (FlightOwnership.lostToThirdParty(service.ownsFlight(ownerId), player.getAllowFlight(), false)) {
+            service.releaseLostFlight(player);
         }
         boolean bypass = service.bypassesRules(player);
         boolean unlimited = service.hasUnlimited(player);
@@ -234,7 +242,10 @@ public final class DefaultFlightTicker implements FlightTicker {
             return;
         }
 
-        if (unlimited) {
+        // A4 : exemptions (illimité, bypass si rules.bypass-no-decrement) ; OP non exempté implicitement.
+        DecrementPolicy.Exemption exemption = DecrementPolicy.exemption(unlimited, false, false, bypass,
+                s.rules().bypassNoDecrement());
+        if (exemption == DecrementPolicy.Exemption.UNLIMITED) {
             sendActionBar(player, profile, s, true);
             return;
         }
@@ -242,7 +253,8 @@ public final class DefaultFlightTicker implements FlightTicker {
             service.expire(player);
             return;
         }
-        if (shouldDecrement(player, profile, s, bypass, nowMillis, context)) {
+        if (exemption == DecrementPolicy.Exemption.NONE
+                && shouldDecrement(player, profile, s, bypass, nowMillis, context)) {
             long remaining = profile.remainingSeconds() - 1L;
             profile.setRemainingSeconds(remaining);
             profile.setLastUpdateEpochSeconds(nowSeconds);
@@ -261,7 +273,9 @@ public final class DefaultFlightTicker implements FlightTicker {
         Settings.DecrementSection d = s.decrement();
         // decrement-rules évaluées paresseusement (seulement si les tests bon marché n'ont pas déjà tranché),
         // avec le contournement déjà calculé pour ce tick (aucune vérification de permission supplémentaire).
-        return DecrementPolicy.shouldDecrement(d.mode(), player.getAllowFlight(), player.isFlying(),
+        // B3 : jamais de décompte pour un vol physique accordé par un autre plugin.
+        return DecrementPolicy.shouldDecrement(service.ownsFlight(player.getUniqueId()), d.mode(),
+                player.getAllowFlight(), player.isFlying(),
                 d.disableWhenStatic(), d.staticDelaySeconds(), profile.lastMoveEpochMillis(), nowMillis,
                 bypass, s.rules().bypassNoDecrement(),
                 () -> !rules.decrementRules().isEmpty() && rules.shouldSkipDecrement(context, bypass));

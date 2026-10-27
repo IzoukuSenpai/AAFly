@@ -17,6 +17,19 @@ public interface ActionParser {
     Action parse(String raw) throws InvalidActionException;
 
     /**
+     * Analyse une action en mémorisant son origine (ex. {@code "fly-rules.no_combat.actions"}), reprise dans
+     * les journaux d'exécution (SPEC-phase2 A7 : identifiant de règle + action + cause).
+     *
+     * @param raw    chaîne brute
+     * @param origin origine lisible pour les logs
+     * @return action prête à exécuter
+     * @throws InvalidActionException si le format, le type ou le contenu est invalide
+     */
+    default Action parse(String raw, String origin) throws InvalidActionException {
+        return parse(raw);
+    }
+
+    /**
      * Analyse une liste ; chaque entrée invalide est journalisée (WARN avec la raison) et ignorée.
      *
      * @param raws chaînes brutes (peut être vide)

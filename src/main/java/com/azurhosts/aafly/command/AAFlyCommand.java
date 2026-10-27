@@ -3,7 +3,7 @@ package com.azurhosts.aafly.command;
 import com.azurhosts.aafly.AAFlyPlugin;
 import com.azurhosts.aafly.config.ConfigException;
 import com.azurhosts.aafly.config.Lang;
-import com.azurhosts.aafly.core.DisableCause;
+import com.azurhosts.aafly.api.DisableCause;
 import com.azurhosts.aafly.core.FlightProfile;
 import com.azurhosts.aafly.core.FlightService;
 import com.azurhosts.aafly.core.FlightTicker;
@@ -72,12 +72,15 @@ public final class AAFlyCommand implements BasicCommand {
     private enum TimeOp { ADD, REMOVE, SET, RESET }
 
     private final AAFlyPlugin plugin;
+    /** {@code /aafly migrate} (SPEC-phase2 A9) : console uniquement, {@code aafly.admin.migrate}. */
+    private final com.azurhosts.aafly.migration.MigrateCommand migrate;
 
     /**
      * @param plugin plugin (services résolus à l'exécution)
      */
     public AAFlyCommand(AAFlyPlugin plugin) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
+        this.migrate = new com.azurhosts.aafly.migration.MigrateCommand(plugin);
     }
 
     @Override
@@ -112,6 +115,7 @@ public final class AAFlyCommand implements BasicCommand {
             case "reload" -> reload(sender);
             case "about", "version" -> about(sender);
             case "help", "aide", "?" -> help(sender);
+            case "migrate" -> migrate.execute(sender, args);
             default -> plugin.lang().send(sender, "errors.unknown-subcommand", Lang.unparsed("label", LABEL));
         }
     }
@@ -281,6 +285,9 @@ public final class AAFlyCommand implements BasicCommand {
         var who = CommandUtil.player(target.getName());
         if (result.changed()) {
             lang.send(sender, result == ToggleResult.ENABLED ? "admin.activated" : "admin.deactivated", who);
+            if (!p.silent() && sender != target && target.isOnline()) {
+                lang.send(target, result == ToggleResult.ENABLED ? "target.activated" : "target.deactivated");
+            }
         } else {
             lang.send(sender, "admin.activate-failed", who, Lang.unparsed("reason", CommandUtil.reason(result)));
         }
@@ -443,6 +450,42 @@ public final class AAFlyCommand implements BasicCommand {
                 Lang.unparsed("version", plugin.getPluginMeta().getVersion()),
                 Lang.unparsed("storage", storage),
                 Lang.unparsed("ticker", ticker));
+        // SPEC-phase2 B3 : clés distinctes de la liste admin.about, pour qu'elles soient ajoutées automatiquement
+        // aux messages.yml existants (addMissing ne fusionne pas les listes).
+        plugin.lang().send(sender, "admin.about-api", Lang.unparsed("api", aboutApi()));
+        plugin.lang().send(sender, "admin.about-integrations", Lang.unparsed("integrations", aboutIntegrations()));
+    }
+
+    /** État de l'API publique (SPEC-phase2 B3) : version, crédits externes, extensions, vols possédés. */
+    private String aboutApi() {
+        try {
+            com.azurhosts.aafly.config.Settings s = plugin.settings();
+            return "v" + com.azurhosts.aafly.api.ApiVersion.CURRENT + ", crédits externes "
+                    + (s.api().allowExternalGrants() ? "autorisés" : "refusés") + ", "
+                    + plugin.threatResolverCount() + " résolveur(s) de menace tiers, "
+                    + plugin.ownedFlightCount() + " vol(s) accordé(s) par AAFly";
+        } catch (IllegalStateException e) {
+            return "non initialisée";
+        }
+    }
+
+    /** Intégrations détectées (PlaceholderAPI, LuckPerms, AAItems). */
+    private String aboutIntegrations() {
+        org.bukkit.plugin.PluginManager pm = plugin.getServer().getPluginManager();
+        StringBuilder b = new StringBuilder();
+        b.append("PlaceholderAPI ").append(pm.isPluginEnabled("PlaceholderAPI") ? "actif" : "absent");
+        b.append(", LuckPerms ").append(pm.isPluginEnabled("LuckPerms") ? "actif" : "absent");
+        b.append(", AAItems ");
+        if (!pm.isPluginEnabled("AAItems")) {
+            b.append("absent");
+        } else if (!plugin.settings().integrations().aaitems().enabled()) {
+            b.append("actif (affichage de la délégation désactivé)");
+        } else {
+            b.append(plugin.settings().api().allowExternalGrants()
+                    ? "actif, délégation du vol possible (fournisseur aafly)"
+                    : "actif, délégation refusée (api.allow-external-grants: false)");
+        }
+        return b.toString();
     }
 
     private void help(CommandSender sender) {
@@ -484,9 +527,15 @@ public final class AAFlyCommand implements BasicCommand {
             if (sender.hasPermission(PERM_ADMIN)) {
                 subs.add("help");
             }
+            if (!(sender instanceof Player) && sender.hasPermission(com.azurhosts.aafly.migration.MigrateCommand.PERMISSION)) {
+                subs.add("migrate");
+            }
             return CommandUtil.filter(subs, a[0]);
         }
         String sub = a[0].toLowerCase(Locale.ROOT);
+        if (sub.equals("migrate")) {
+            return migrate.suggest(sender, a);
+        }
         String last = a[a.length - 1];
         // Position de l'argument en ignorant les -s déjà saisis.
         int pos = 0;

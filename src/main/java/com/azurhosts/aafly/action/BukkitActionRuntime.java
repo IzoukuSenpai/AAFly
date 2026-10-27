@@ -33,6 +33,7 @@ public final class BukkitActionRuntime implements ActionRuntime {
     private final @Nullable Function<Player, String> remainingProvider;
     private final Set<String> warned = ConcurrentHashMap.newKeySet();
     private volatile @Nullable Map<String, Key> soundsByName;
+    private volatile @Nullable Set<Key> knownSoundKeys;
 
     /**
      * @param plugin            plugin (scheduler, logger)
@@ -88,6 +89,19 @@ public final class BukkitActionRuntime implements ActionRuntime {
             soundsByName = map;
         }
         return Optional.ofNullable(map.get(enumName.toUpperCase(Locale.ROOT)));
+    }
+
+    @Override
+    public @Nullable Set<Key> knownSounds() {
+        Set<Key> known = knownSoundKeys;
+        if (known == null) {
+            resolveSoundName("");
+            Map<String, Key> map = soundsByName;
+            // Index vide (registre indisponible) : validation impossible, repli sur la résolution tardive.
+            known = map == null || map.isEmpty() ? Set.of() : Set.copyOf(map.values());
+            knownSoundKeys = known;
+        }
+        return known.isEmpty() ? null : known;
     }
 
     /**

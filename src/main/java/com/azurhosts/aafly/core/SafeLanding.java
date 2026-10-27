@@ -34,4 +34,14 @@ public interface SafeLanding {
      * @param player joueur
      */
     void forget(Player player);
+
+    /**
+     * Mémorise la position du joueur comme « dernière position sûre » s'il se tient sur un sol sûr
+     * (SPEC-phase2 A3, repli 1). Appelé par le MoveListener sur changement de bloc ; l'implémentation limite
+     * le travail à une vérification par seconde et par joueur. Implémentation par défaut : aucune mémorisation.
+     *
+     * @param player joueur
+     */
+    default void observe(Player player) {
+    }
 }

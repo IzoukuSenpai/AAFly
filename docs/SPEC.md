@@ -244,3 +244,13 @@ decrement-rules: {}
 - Tests unitaires : DurationParser, TimeFormatter, TimeMath, RuleEngine (priorité, conditions), ActionParser, TokenSigner.
 - README.md (FR) : installation, config, commandes, permissions, placeholders, migration depuis wFly (tableau de correspondance), crédits « Developped by AzurHOSTS.com and powered by AzurWare.fr. ». LICENSE : MIT, copyright AzurHOSTS (Hugo CORBIN, président).
 - CI GitHub Actions : build + tests sur push/PR.
+
+## 14. Décisions d'implémentation phase 2 (complète `SPEC-phase2.md`)
+- **API** : `api/FlightApi` (phase 1) est remplacée par `api/AAFlyApi` (SPEC-phase2 B2), seule API publique ; son implémentation vit dans `apiimpl/` pour que `AAFly-api-<version>.jar` ne contienne que `com/azurhosts/aafly/api/**` (vérifié par la tâche `verifyApiIsolation`). `DisableCause` passe dans `api`. Méthode ajoutée : `formatTime(long)`. `GrantRequest` valide `seconds ≥ 1`, `capSeconds ≥ 1` et `source` dès la construction.
+- **grant** : un listener de `FlightTimeChangeEvent` qui ramène la valeur au niveau courant ou plus bas donne aussi `DENIED_BY_RULE` (l'appelant rembourse). Timed-fly actif → `DISABLED_BY_CONFIG`.
+- **Extensions** : un type de condition enregistré (ou retiré à la désactivation de son plugin) déclenche un rechargement des règles au tick suivant. Une condition tierce en erreur (`RuntimeException` ou `LinkageError`) vaut `false`, avertissement unique.
+- **Conditions** : un groupe `all` vide est refusé comme `any` vide ; `!` combiné à `negate: true` est refusé (ambigu). La limite de 64 conditions directes par règle est conservée.
+- **Atterrissage sûr** : ordre de repli = sol sûr dans la colonne → eau (deux blocs libres au-dessus) → dernière position sûre mémorisée (revérifiée bloc par bloc, jamais via `onGround`) → spawn du monde.
+- **Coexistence** : à la connexion, si le profil voulait voler et que `allowFlight` est déjà vrai, AAFly reprend la propriété (cas d'un crash serveur ; empêche un vol gratuit sans solde).
+- **Configuration** : clés inconnues signalées par un WARN (jamais supprimées), hors sections libres (`fly-rules`, `decrement-rules`, groupes, seuils).
+- **`/aafly about`** : affiche l'état de l'API (version, crédits externes, résolveurs tiers, vols possédés) et les intégrations PlaceholderAPI, LuckPerms, AAItems.

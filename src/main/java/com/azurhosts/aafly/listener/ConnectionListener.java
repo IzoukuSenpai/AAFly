@@ -63,6 +63,9 @@ public final class ConnectionListener implements Listener {
         Player player = event.getPlayer();
         UUID uuid = player.getUniqueId();
         landing.forget(player);
+        if (service instanceof com.azurhosts.aafly.core.DefaultFlightService d) {
+            d.forgetPlayer(uuid); // B3 : propriété du vol en mémoire seulement
+        }
         rules.invalidate(uuid);
         thresholds.reset(uuid);
         if (storage.cached(uuid) != null) {

@@ -29,4 +29,11 @@ public interface Action {
      * @param vars   variables disponibles (clés {@link #VAR_PLAYER}, {@link #VAR_UUID}, {@link #VAR_REMAINING}…)
      */
     void execute(Player player, Map<String, String> vars);
+
+    /**
+     * @return origine de l'action pour les journaux (ex. {@code "fly-rules.no_combat.actions"}), vide si inconnue
+     */
+    default String origin() {
+        return "";
+    }
 }

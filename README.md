@@ -26,10 +26,11 @@ n'a été reprise. Le plugin a été conçu avec deux priorités, **la sécurit�
 10. [Jetons de vol](#jetons-de-vol)
 11. [Mode timed-fly](#mode-timed-fly)
 12. [API développeurs](#api-développeurs)
-13. [Migration depuis wFly](#migration-depuis-wfly)
-14. [Compilation](#compilation)
-15. [Sécurité](#sécurité)
-16. [Licence et crédits](#licence-et-crédits)
+13. [Coexistence avec AAItems](#coexistence-avec-aaitems)
+14. [Migration depuis wFly et TempFly](#migration-depuis-wfly-et-tempfly)
+15. [Compilation](#compilation)
+16. [Sécurité](#sécurité)
+17. [Licence et crédits](#licence-et-crédits)
 
 ---
 
@@ -63,8 +64,8 @@ n'a été reprise. Le plugin a été conçu avec deux priorités, **la sécurit�
 
 | Élément | Version |
 |---|---|
-| Serveur | **Paper** 1.21+ / 26.x. Spigot et les versions anciennes ne sont pas pris en charge. |
-| Java | 21 ou plus récent |
+| Serveur | **Paper** 26.x (le plugin est compilé contre `paper-api` 26.3). Spigot et les versions anciennes ne sont pas pris en charge. |
+| Java | **25** ou plus récent (bytecode Java 25, y compris le jar d'API) |
 | PlaceholderAPI | Optionnel (placeholders et règles) |
 | LuckPerms | Optionnel (groupes du mode timed-fly) |
 
@@ -122,6 +123,9 @@ flight:
   unlimited-for-op: false           # les OP ne sont PAS illimités par défaut
   keep-flight-on-world-change: true
   default-speed: 0.1                # 0.1 à 1.0
+  safe-landing:
+    max-scan: 64                    # profondeur de recherche du sol (1 à 4096 blocs) ; sans sol sûr :
+                                    # eau, puis dernière position sûre, puis point d'apparition du monde
 
 actionbar:
   enabled: false
@@ -186,6 +190,15 @@ compat:
 
 commands:
   fly-aliases: []               # ex. ["vol", "voler"]
+  toggle-cooldown-millis: 1000  # délai minimal entre deux /fly d'un joueur (0 = désactivé, max 60000)
+
+api:
+  allow-external-grants: true   # autorise les plugins tiers (ex. AAItems) à créditer du temps via l'API
+
+integrations:
+  aaitems:
+    enabled: true               # si AAItems est présent, /aafly about affiche l'état de la délégation du vol ;
+                                # AAFly ne retire jamais un vol qu'il n'a pas lui-même accordé
 
 fly-rules:
   default: { priority: 999, result: ALLOW }
@@ -236,6 +249,19 @@ commands-time-remaining:
 
 Chaque seuil (en secondes) se déclenche **une fois par passage**.
 
+La forme héritée de wFly est aussi acceptée : `commands` (texte ou liste) devient une liste d'actions
+`[command] ...` (console). Une entrée qui commence déjà par un type connu (`[message]`...) est gardée telle quelle,
+et `[player]` reste refusé tant que `actions.allow-player-commands` est désactivé.
+
+```yaml
+commands-time-remaining:
+  120:
+    commands: "say %player% n'a plus que 2 minutes de vol"
+```
+
+Les actions sont **compilées au chargement** (et à chaque `/aafly reload`) : une action invalide ou un son
+`minecraft:` inconnu est signalé avec son origine (ex. `fly-rules.no_combat.actions`) et ignoré.
+
 ## Commandes
 
 Le flag `-s` rend l'action silencieuse pour le joueur ciblé. Toutes les commandes proposent l'autocomplétion.
@@ -270,6 +296,7 @@ Le flag `-s` rend l'action silencieuse pour le joueur ciblé. Toutes les command
 | `/aafly reload` | `aafly.admin.reload` | Recharge la configuration, les messages et les règles (sans le stockage) |
 | `/aafly about` | `aafly.admin.about` | Version, stockage et statistiques du ticker |
 | `/aafly help` | `aafly.admin` | Aide d'administration |
+| `/aafly migrate wfly\|tempfly ...` | `aafly.admin.migrate` | Console uniquement : import depuis wFly ou TempFly (voir [Migration](#migration-depuis-wfly)) |
 
 Un joueur hors-ligne est accepté **s'il est déjà connu**, c'est-à-dire si son profil existe en base. Sinon,
 la commande est refusée.
@@ -291,6 +318,7 @@ la commande est refusée.
 | `aafly.admin.toggle`, `aafly.admin.status` | Contrôle et état du vol d'un joueur |
 | `aafly.admin.token` | Création de jetons d'administration |
 | `aafly.admin.reload`, `aafly.admin.about` | Rechargement, informations |
+| `aafly.admin.migrate` | Migration wFly/TempFly (console uniquement ; non accordée par défaut aux OP) |
 | `wfly.infinite.fly`, `wfly.bypass.fly` | Alias de compatibilité wFly (si `compat.wfly-permissions: true`) |
 
 > Les OP **n'ont pas** le vol illimité par défaut. Donnez explicitement `aafly.unlimited`, ou passez
@@ -352,6 +380,40 @@ décompté**.
 Les placeholders PlaceholderAPI de `input` sont résolus, puis la valeur obtenue est **comparée**. Elle n'est
 jamais exécutée. Une valeur non numérique fait échouer une condition `number_*` sans provoquer d'erreur. Une
 règle invalide est ignorée et un avertissement explicite (nom de la règle, raison) est journalisé.
+
+Pour `string_equals*` et `string_contains*`, les placeholders sont résolus dans `input` **et** dans `value`.
+Les noms de types sont insensibles à la casse (`STRING_EQUALS` = `string_equals`, configs wFly acceptées). Le
+nombre de règles n'est pas limité ; à priorité égale, l'ordre de déclaration départage.
+
+### Conditions composites et négation
+
+Les conditions d'une règle restent combinées en **ET**. Pour exprimer un **OU** ou un groupe, utilisez :
+
+| Type | Alias | Correspond si... |
+|---|---|---|
+| `any` | `or` | au moins un enfant de `children` correspond |
+| `all` | `and` | tous les enfants de `children` correspondent |
+
+- `children` est une table `nom → condition`, avec la même grammaire, récursive.
+- Chaque groupe a de 1 à 32 enfants, et l'imbrication est limitée à 8 niveaux.
+- Un groupe **vide** (`any` comme `all`) est une erreur de chargement : la règle est ignorée avec un
+  avertissement, elle ne vaut jamais `true` en silence.
+- Négation : préfixe `!` sur le type (`type: "!has_permission"`) **ou** `negate: true` (pas les deux à la fois).
+
+```yaml
+fly-rules:
+  zone_pvp:
+    priority: 2
+    conditions:
+      zone:
+        type: any
+        children:
+          arene: { type: world, worlds: [arena] }
+          combat: { type: string_equals, input: "%combatlogx_in_combat%", value: "true" }
+      pas_staff: { type: "!has_permission", permission: "aafly.staff" }
+    result: DENY
+    actions: ["[actionbar] <red>Vol interdit en zone de combat"]
+```
 
 ### Exemples
 
@@ -464,32 +526,116 @@ L'option `decrement-cooldown-offline` règle le comportement de la recharge hors
 
 ## API développeurs
 
-```java
-FlightApi api = Bukkit.getServicesManager().load(FlightApi.class);
-if (api != null) {
-    api.addTime(player.getUniqueId(), 600).thenAccept(result -> {
-        if (result.success()) {
-            player.sendMessage("+10 minutes de vol !");
-        }
-    });
+Compilez contre `build/libs/AAFly-api-<version>.jar` (tâche Gradle `apiJar`, en `compileOnly`, jamais
+embarqué). Ce jar ne contient que `com.azurhosts.aafly.api` (+ `events`), qui ne dépend que de Paper API et
+du JDK ; il est accompagné de `-sources.jar` et `-javadoc.jar`.
+
+```kotlin
+// build.gradle.kts du plugin tiers
+dependencies {
+    compileOnly(files("libs/AAFly-api-1.0.0.jar"))
 }
 ```
 
-- **Méthodes** : `remainingSeconds`, `isFlightEnabled`, `hasUnlimited`, `addTime`, `removeTime`, `setTime`,
-  `enableFlight`, `disableFlight`, `registerCondition` (nouveau type de condition de règle) et `formatTime`.
+```java
+import com.azurhosts.aafly.api.*;
+
+// Main thread uniquement.
+AAFlyApi api;
+try {
+    api = AAFlyProvider.get();           // IllegalStateException si AAFly n'est pas chargé
+} catch (IllegalStateException | NoClassDefFoundError absent) {
+    return;                              // AAFly absent : ne rien créditer
+}
+if (!api.apiVersion().isCompatibleWith(new ApiVersion(1, 0, 0))) {
+    return;
+}
+// Crédite 10 min, sans dépasser 2 h au total, puis active le vol si les fly-rules l'autorisent.
+GrantResult r = api.grant(player, new GrantRequest(600, GrantMode.EXTEND, 7200, true, "monplugin"));
+switch (r.status()) {
+    case GRANTED -> player.sendMessage("Solde : " + api.formatTime(r.remainingSeconds()));
+    case NOT_LOADED -> { /* join en cours : réessayer plus tard */ }
+    default -> { /* rien n'a été crédité : rembourser l'objet consommé */ }
+}
+```
+
+Extension du moteur de règles (le type est utilisable dans `fly-rules` dès le tick suivant, sans reload) :
+
+```java
+api.registerCondition("monplugin_level", def -> {
+    double min = def.number("min", 0);   // IllegalArgumentException levée ici = règle ignorée avec WARN
+    return ctx -> ctx.player().getLevel() >= min;
+});
+```
+
+- **Méthodes** : `apiVersion`, `remainingSeconds` (`-1` si non chargé), `isFlightEnabled`, `isUnlimited`,
+  `isSuspended`, `grant`, `enable`/`disable` (avec une `source`), `registerCondition`,
+  `registerThreatResolver` et `formatTime`.
+- **`grant`** : modes `EXTEND`, `REFRESH`, `DENY_IF_ACTIVE` ; plafond `min(capSeconds, limits.max-seconds)` ;
+  statuts `GRANTED`, `ALREADY_ACTIVE`, `CAP_REACHED`, `DENIED_BY_RULE`, `UNLIMITED`, `NOT_LOADED`,
+  `DISABLED_BY_CONFIG` (`api.allow-external-grants: false` ou timed-fly). Seul `GRANTED` crédite du temps.
+  La `source` doit respecter `^[a-z0-9_.:-]{1,32}$`.
 - **Événements** :
   - `FlightToggleEvent` est annulable. L'annulation est ignorée pour une expiration.
-  - `FlightTimeChangeEvent`.
+  - `FlightTimeChangeEvent` (annulable ; `getSource()` pour un crédit API).
   - `FlightExpireEvent`.
-- **Threads** : toutes les méthodes s'appellent depuis le main thread, et les futures se terminent sur le
-  main thread.
+- **Threads** : toutes les méthodes s'appellent depuis le main thread (`IllegalStateException` sinon).
+- Les conditions et résolveurs de menace d'un plugin sont retirés automatiquement à sa désactivation.
 
 Déclarez AAFly en dépendance douce dans votre `paper-plugin.yml` ou `plugin.yml`.
 
-## Migration depuis wFly
+## Coexistence avec AAItems
 
-AAFly n'importe pas automatiquement les données de wFly. Le stockage est différent, et cela reste un choix de
-sécurité : aucun fichier tiers n'est lu. Utilisez `/aafly set <joueur> <temps>` ou l'API pour les soldes à reprendre.
+AAItems possède son propre vol temporisé (effet `flight_time`). Les deux plugins peuvent tourner ensemble :
+
+- **Un seul propriétaire du vol.** AAFly mémorise les vols qu'il a lui-même accordés et ne retire **jamais** un
+  vol accordé par un autre plugin (ni `allowFlight`, ni `flying`), y compris à l'arrêt du serveur. Si un autre
+  plugin a déjà accordé le vol quand le joueur fait `/fly`, AAFly reprend la main et en devient propriétaire.
+  Le temps d'un vol accordé par un autre plugin n'est jamais décompté du solde AAFly.
+- **Délégation.** Avec le module `aaitems-integration-aafly`, le réglage AAItems
+  `tools.flight.provider: auto` (défaut) fait créditer les plumes et consommables `flight_time` sur le **solde
+  AAFly** via `AAFlyApi#grant` (`source = "aaitems"`) : le temps est visible avec `/flytime` et
+  `%aafly_remaining%`, et le vol est activé si les `fly-rules` l'autorisent.
+- **Jamais de vol gratuit.** Si AAFly refuse (`api.allow-external-grants: false`, timed-fly actif, joueur
+  illimité, profil en chargement), AAItems ne sert pas l'effet et rembourse l'objet.
+- `integrations.aaitems.enabled` affiche l'état de la délégation dans `/aafly about`, qui liste aussi
+  PlaceholderAPI, LuckPerms et l'état de l'API.
+
+```yaml
+# items/plume_de_vol.yml (AAItems)
+plume_de_vol:
+  material: FEATHER
+  name: "<aqua>Plume de vol"
+  abilities:
+    - trigger: right_click
+      consume: 1
+      effects:
+        - type: flight_time
+          duration: 10m
+          stack: extend
+          max-total: 2h
+```
+
+Avec le fournisseur `aafly`, la restriction `worlds` d'un effet AAItems ne s'applique qu'au moment de
+l'utilisation : pour interdire le vol dans un monde, utilisez les `fly-rules` d'AAFly.
+
+## Migration depuis wFly et TempFly
+
+Les soldes se reprennent depuis la **console** (permission `aafly.admin.migrate`) :
+
+```
+/aafly migrate wfly [sqlite|mysql] [--merge=max|replace|skip] [--dry-run]
+/aafly migrate tempfly [--merge=max|replace|skip] [--dry-run]
+```
+
+- Sources fixes, ouvertes en **lecture seule** et jamais modifiées : `plugins/wFlyV2/database.db` (table `fly`),
+  la base MySQL décrite dans `plugins/wFlyV2/config.yml` (section `mysql`, jamais journalisée), ou
+  `plugins/TempFly/data.yml` (`players.<uuid>.time`). Aucun lien symbolique n'est suivi ; la clé `redis` de wFly
+  est ignorée (avertissement).
+- Import dans une seule transaction ; chaque ligne est validée (UUID, temps entre 0 et `limits.max-seconds`).
+- `--merge` : `max` (défaut, garde le plus grand temps), `replace` (temps et état de vol de la source) ou `skip`.
+- `--dry-run` affiche le rapport (lus / importés / ignorés / déjà présents) sans rien écrire.
+- Les profils des joueurs en ligne sont rechargés après l'import.
 
 | wFly | AAFly | Remarque |
 |---|---|---|
@@ -524,7 +670,8 @@ sécurité : aucun fichier tiers n'est lu. Utilisez `/aafly set <joueur> <temps>
 
 ## Compilation
 
-Prérequis : JDK 25. Le toolchain Gradle produit un bytecode compatible avec Java 21.
+Prérequis : JDK 25. Le toolchain Gradle produit un bytecode **Java 25** (le code source reste compatible
+Java 21, mais `paper-api` 26 impose Java 25 à l'exécution comme à la compilation des plugins tiers).
 
 ```bash
 ./gradlew build          # compilation + tests ; le jar est dans build/libs/AAFly-<version>.jar

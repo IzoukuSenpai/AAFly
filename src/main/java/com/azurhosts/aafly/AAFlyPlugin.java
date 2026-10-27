@@ -7,8 +7,8 @@ import com.azurhosts.aafly.action.DefaultActionExecutor;
 import com.azurhosts.aafly.action.DefaultActionParser;
 import com.azurhosts.aafly.action.DefaultTimeThresholdNotifier;
 import com.azurhosts.aafly.action.TimeThresholdNotifier;
-import com.azurhosts.aafly.api.DefaultFlightApi;
-import com.azurhosts.aafly.api.FlightApi;
+import com.azurhosts.aafly.api.AAFlyApi;
+import com.azurhosts.aafly.apiimpl.DefaultAAFlyApi;
 import com.azurhosts.aafly.command.Commands;
 import com.azurhosts.aafly.config.ConfigException;
 import com.azurhosts.aafly.config.ConfigManager;
@@ -93,13 +93,14 @@ public final class AAFlyPlugin extends JavaPlugin {
     private @Nullable FlyTokenService tokenService;
     private @Nullable GroupResolver groupResolver;
     private @Nullable TimedFlyService timedFly;
-    private @Nullable FlightApi api;
+    private @Nullable AAFlyApi api;
     // Implémentations concrètes conservées pour le rechargement et l'arrêt (méthodes hors contrats).
     private @Nullable BukkitActionRuntime actionRuntime;
     private @Nullable DefaultActionParser defaultActionParser;
     private @Nullable DefaultActionExecutor defaultActionExecutor;
     private @Nullable DefaultFlightService defaultFlightService;
     private @Nullable Placeholders papi;
+    private @Nullable NearbyEnemyDetector nearbyDetector;
     private Commands.@Nullable Registered commands;
 
     @Override
@@ -183,7 +184,7 @@ public final class AAFlyPlugin extends JavaPlugin {
         this.ruleEngine = rules;
 
         // 5. Services cœur ; le timed-fly est créé avant le service de vol qui en dépend.
-        DefaultSafeLanding landing = new DefaultSafeLanding();
+        DefaultSafeLanding landing = new DefaultSafeLanding(() -> settings().flight().safeLanding().maxScan());
         this.safeLanding = landing;
         DefaultFlySpeedService speed = new DefaultFlySpeedService(sm, st);
         this.flySpeed = speed;
@@ -192,7 +193,11 @@ public final class AAFlyPlugin extends JavaPlugin {
         this.groupResolver = groups;
         DefaultTimedFlyService timed = new DefaultTimedFlyService(settings, groups);
         this.timedFly = timed;
-        NearbyEnemyDetector nearby = new NearbyEnemyDetector(st, bridge);
+        // A6 : résolveurs tiers (API) puis résolveur par défaut (pvp.bypass-placeholders).
+        NearbyEnemyDetector nearby = new NearbyEnemyDetector(st,
+                new com.azurhosts.aafly.core.ThreatResolverRegistry(getLogger()),
+                new com.azurhosts.aafly.core.BuiltinThreatResolver(st, bridge));
+        this.nearbyDetector = nearby;
         DefaultFlightService fs = new DefaultFlightService(getLogger(), st, lng, tf, sm, rules, bridge, executor,
                 thresholds, timed, landing, speed, nearby);
         this.defaultFlightService = fs;
@@ -209,7 +214,8 @@ public final class AAFlyPlugin extends JavaPlugin {
         pm.registerEvents(new GameModeListener(this, sm, fs), this);
         pm.registerEvents(new RespawnListener(this, sm, fs, rules), this);
         pm.registerEvents(new FallDamageListener(landing), this);
-        pm.registerEvents(new MoveListener(st, sm), this);
+        pm.registerEvents(new MoveListener(st, sm, landing), this);
+        pm.registerEvents(new com.azurhosts.aafly.listener.ThreatListener(fs, nearby, getLogger()), this);
         pm.registerEvents(new TokenListener(this, tokens), this);
         pm.registerEvents(new QuitCleanup(), this);
 
@@ -228,7 +234,8 @@ public final class AAFlyPlugin extends JavaPlugin {
         papiHook.init();
 
         // 11. API publique (ServicesManager), après le service de vol et le registre de conditions.
-        this.api = DefaultFlightApi.register(this);
+        // Crédits externes : api.allow-external-grants (SPEC-phase2 B3, défaut true), relu à chaque appel.
+        this.api = DefaultAAFlyApi.register(this, nearby.registry(), () -> settings().api().allowExternalGrants());
 
         // 12. Joueurs déjà connectés (cas d'un /reload serveur).
         connection.loadOnlinePlayers();
@@ -314,28 +321,24 @@ public final class AAFlyPlugin extends JavaPlugin {
         api = null;
         flightService = null;
         defaultFlightService = null;
+        nearbyDetector = null;
         tokenService = null;
         commands = null;
     }
 
-    /** Retire physiquement le vol accordé par AAFly aux joueurs en ligne (hors creative/spectator). */
+    /**
+     * Retire physiquement, aux joueurs en ligne, <b>uniquement</b> les vols accordés par AAFly (SPEC-phase2 B3 :
+     * un vol accordé par AAItems ou un autre plugin n'est jamais retiré ; creative/spectator jamais touchés).
+     */
     private void revokeFlight() {
-        StorageManager sm = storage;
         DefaultFlightService fs = defaultFlightService;
-        if (sm == null || fs == null) {
+        if (fs == null) {
             return;
         }
-        for (Player player : new ArrayList<>(getServer().getOnlinePlayers())) {
-            try {
-                FlightProfile profile = sm.cached(player.getUniqueId());
-                GameMode gm = player.getGameMode();
-                if (profile != null && profile.flightEnabled() && !profile.isSuspended()
-                        && gm != GameMode.CREATIVE && gm != GameMode.SPECTATOR) {
-                    fs.stopFlight(player);
-                }
-            } catch (RuntimeException e) {
-                getLogger().log(Level.WARNING, "Coupure du vol de " + player.getName() + " à l'arrêt en erreur", e);
-            }
+        try {
+            fs.revokeOwnedFlights();
+        } catch (RuntimeException e) {
+            getLogger().log(Level.WARNING, "Coupure des vols AAFly à l'arrêt en erreur", e);
         }
     }
 
@@ -465,8 +468,24 @@ public final class AAFlyPlugin extends JavaPlugin {
         return requireNonNull(timedFly, "TimedFlyService");
     }
 
-    public FlightApi api() {
-        return requireNonNull(api, "FlightApi");
+    public AAFlyApi api() {
+        return requireNonNull(api, "AAFlyApi");
+    }
+
+    /**
+     * @return nombre de résolveurs de menace tiers enregistrés via l'API (0 si non initialisé)
+     */
+    public int threatResolverCount() {
+        NearbyEnemyDetector n = nearbyDetector;
+        return n == null ? 0 : n.registry().size();
+    }
+
+    /**
+     * @return nombre de joueurs dont le vol a été accordé par AAFly (SPEC-phase2 B3 ; 0 si non initialisé)
+     */
+    public int ownedFlightCount() {
+        DefaultFlightService fs = defaultFlightService;
+        return fs == null ? 0 : fs.ownership().size();
     }
 
     private static <T> T requireNonNull(@Nullable T value, String name) {

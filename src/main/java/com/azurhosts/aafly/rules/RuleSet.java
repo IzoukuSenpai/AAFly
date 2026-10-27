@@ -15,8 +15,10 @@ import org.spongepowered.configurate.ConfigurationNode;
 
 /**
  * Ensemble immuable de règles triées par priorité croissante (tri stable : à priorité égale,
- * l'ordre du fichier est conservé). La première règle dont toutes les conditions correspondent
- * décide ; aucune règle → {@link RuleDecision#DEFAULT_ALLOW}.
+ * l'ordre de déclaration du fichier est conservé, SPEC-phase2 A2). La première règle dont toutes les
+ * conditions correspondent décide ; aucune règle → {@link RuleDecision#DEFAULT_ALLOW}. Aucune limite
+ * du nombre de règles. Conditions composites ({@code any}/{@code all}), négation ({@code !type} ou
+ * {@code negate: true}) : voir {@link DefaultConditionRegistry}.
  *
  * <p>Format d'une règle :
  * <pre>
@@ -55,9 +57,7 @@ public final class RuleSet {
     /** Ensemble vide. */
     public static final RuleSet EMPTY = new RuleSet(List.of());
 
-    /** Nombre maximal de règles par section. */
-    public static final int MAX_RULES = 512;
-    /** Nombre maximal de conditions par règle. */
+    /** Nombre maximal de conditions de premier niveau par règle (aucune limite du nombre de règles, A2). */
     public static final int MAX_CONDITIONS = 64;
     /** Format d'un nom de règle ou de condition. */
     public static final Pattern NAME = Pattern.compile("^[A-Za-z0-9_\\-]{1,64}$");
@@ -115,10 +115,6 @@ public final class RuleSet {
         List<Rule> rules = new ArrayList<>();
         for (Map.Entry<Object, ? extends ConfigurationNode> e : section.childrenMap().entrySet()) {
             String name = String.valueOf(e.getKey());
-            if (rules.size() >= MAX_RULES) {
-                logger.warning("[" + kind.section() + "] plus de " + MAX_RULES + " règles : les suivantes sont ignorées.");
-                break;
-            }
             try {
                 rules.add(parseRule(name, e.getValue(), kind, registry, parser, logger));
             } catch (InvalidRuleException ex) {

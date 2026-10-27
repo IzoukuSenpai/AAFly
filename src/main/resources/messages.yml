@@ -99,6 +99,9 @@ admin:
     - "<gray>Stockage : <white><storage>"
     - "<gray>Ticker : <white><ticker>"
     - "<dark_gray>Developped by AzurHOSTS.com and powered by AzurWare.fr."
+  # Envoyées après la liste « about » (clés séparées : ajoutées automatiquement aux fichiers existants).
+  about-api: "<gray>API : <white><api>"
+  about-integrations: "<gray>Intégrations : <white><integrations>"
 
 target:
   added: "<prefix><green>Vous avez reçu <time> <green>de vol."
@@ -125,6 +128,7 @@ help:
     - "<white>/aafly status \\<joueur></white>"
     - "<white>/aafly convert \\<joueur> \\<temps></white>"
     - "<white>/aafly reload</white> <gray>|</gray> <white>/aafly about</white>"
+    - "<white>/aafly migrate wfly [sqlite|mysql] | tempfly [--merge=max|replace|skip] [--dry-run]</white> <gray>(console)"
 
 # Listes d'actions ("[type] contenu") : message, actionbar, title (titre;sous-titre),
 # subtitle, command (console), player (si actions.allow-player-commands), sound (NOM[;volume;pitch]).
@@ -138,6 +142,9 @@ not-allowed-here:
   - "[actionbar] <red>Le vol n'est pas autorisé ici"
 
 # Actions déclenchées quand le temps restant atteint un seuil (en secondes), une fois par passage.
+# Deux formes acceptées : liste d'actions (ci-dessous) ou forme héritée wFly
+#   120:
+#     commands: "say %player% n'a plus que 2 minutes"   (texte ou liste ; chaque entrée devient [command])
 commands-time-remaining:
   60:
     - "[message] <prefix><yellow>Plus qu'une minute de vol !"

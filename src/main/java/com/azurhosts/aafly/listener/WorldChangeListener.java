@@ -2,7 +2,7 @@ package com.azurhosts.aafly.listener;
 
 import com.azurhosts.aafly.config.Settings;
 import com.azurhosts.aafly.core.DefaultFlightService;
-import com.azurhosts.aafly.core.DisableCause;
+import com.azurhosts.aafly.api.DisableCause;
 import com.azurhosts.aafly.core.FlightProfile;
 import com.azurhosts.aafly.rules.RuleDecision;
 import com.azurhosts.aafly.rules.RuleEngine;

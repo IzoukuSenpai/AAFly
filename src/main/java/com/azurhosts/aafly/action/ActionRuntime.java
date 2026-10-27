@@ -58,6 +58,17 @@ public interface ActionRuntime {
     Optional<Key> resolveSoundName(String enumName);
 
     /**
+     * Sons {@code minecraft:} connus du serveur, pour valider les actions {@code [sound]} au chargement
+     * (SPEC-phase2 A7). Appelé pendant l'analyse : doit être sûr sur le main thread et sans effet de bord.
+     *
+     * @return ensemble des clés connues, ou {@code null} si la validation est impossible (sons alors résolus
+     *         à l'exécution, comportement de repli)
+     */
+    default java.util.@Nullable Set<Key> knownSounds() {
+        return null;
+    }
+
+    /**
      * Temps restant formaté du joueur (utilisé si {@code %remaining%} n'est pas fourni par l'appelant).
      *
      * @param player joueur

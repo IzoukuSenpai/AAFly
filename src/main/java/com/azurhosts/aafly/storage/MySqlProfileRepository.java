@@ -35,18 +35,22 @@ public final class MySqlProfileRepository extends AbstractSqlProfileRepository {
     private static final Pattern DATABASE = Pattern.compile("^[A-Za-z0-9_]{1,64}$");
     private static final String DRIVER_CLASS = "com.mysql.cj.jdbc.Driver";
 
-    private static final String UPSERT_SQL =
-            "INSERT INTO aafly_profiles (" + PROFILE_COLUMNS + ") VALUES (?, ?, ?, ?, ?, ?, ?)"
-                    + " ON DUPLICATE KEY UPDATE"
-                    + " name = VALUES(name),"
-                    + " remaining_seconds = VALUES(remaining_seconds),"
-                    + " flight_enabled = VALUES(flight_enabled),"
-                    + " last_update = VALUES(last_update),"
-                    + " cooldown_until = VALUES(cooldown_until),"
-                    + " fly_speed = VALUES(fly_speed)";
+    /** Insertion si absente : 0 ligne si un autre serveur a créé la ligne entre-temps (conflit). */
+    private static final String INSERT_IF_ABSENT_SQL =
+            "INSERT IGNORE INTO aafly_profiles (" + PROFILE_COLUMNS + ", version) VALUES (?, ?, ?, ?, ?, ?, ?, 1)";
+
+    /** Lecture verrouillante : voit la dernière version validée (et non l'instantané REPEATABLE READ). */
+    private static final String LOCKING_READ_SQL =
+            "SELECT remaining_seconds, version FROM aafly_profiles WHERE uuid = ? FOR UPDATE";
+
+    private static final String SERVER_UPSERT_SQL =
+            "INSERT INTO aafly_server (`key`, `value`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `value` = VALUES(`value`)";
+
+    private static final String SERVER_SELECT_SQL =
+            "SELECT `value` FROM aafly_server WHERE `key` = ?";
 
     private static final String FIND_BY_NAME_SQL =
-            "SELECT " + PROFILE_COLUMNS + " FROM aafly_profiles WHERE name = ?"
+            "SELECT " + SELECT_COLUMNS + " FROM aafly_profiles WHERE name = ?"
                     + " ORDER BY last_update DESC LIMIT 1";
 
     private static final SchemaMigrator.Dialect DIALECT = new SchemaMigrator.Dialect() {
@@ -62,9 +66,9 @@ public final class MySqlProfileRepository extends AbstractSqlProfileRepository {
         }
 
         @Override
-        public List<String> migration(int version) {
+        public List<SchemaMigrator.Step> migration(int version) {
             if (version == 1) {
-                return List.of(
+                return List.of(new SchemaMigrator.Sql(
                         "CREATE TABLE IF NOT EXISTS aafly_profiles ("
                                 + "uuid CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,"
                                 + " name VARCHAR(16) CHARACTER SET ascii COLLATE ascii_general_ci NOT NULL DEFAULT '',"
@@ -75,8 +79,8 @@ public final class MySqlProfileRepository extends AbstractSqlProfileRepository {
                                 + " fly_speed DOUBLE NOT NULL DEFAULT 0.1,"
                                 + " PRIMARY KEY (uuid),"
                                 + " INDEX idx_aafly_profiles_name (name)"
-                                + ") ENGINE=InnoDB",
-                        "CREATE TABLE IF NOT EXISTS aafly_tokens ("
+                                + ") ENGINE=InnoDB"),
+                        new SchemaMigrator.Sql("CREATE TABLE IF NOT EXISTS aafly_tokens ("
                                 + "token_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,"
                                 + " seconds BIGINT NOT NULL,"
                                 + " created_by CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NULL,"
@@ -84,7 +88,17 @@ public final class MySqlProfileRepository extends AbstractSqlProfileRepository {
                                 + " redeemed_by CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NULL,"
                                 + " redeemed_at BIGINT NULL,"
                                 + " PRIMARY KEY (token_id)"
-                                + ") ENGINE=InnoDB");
+                                + ") ENGINE=InnoDB"));
+            }
+            if (version == 2) {
+                return List.of(
+                        new SchemaMigrator.AddColumn("aafly_profiles", "version",
+                                "ALTER TABLE aafly_profiles ADD COLUMN version BIGINT NOT NULL DEFAULT 0"),
+                        new SchemaMigrator.Sql("CREATE TABLE IF NOT EXISTS aafly_server ("
+                                + "`key` VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,"
+                                + " `value` BIGINT NOT NULL,"
+                                + " PRIMARY KEY (`key`)"
+                                + ") ENGINE=InnoDB"));
             }
             throw new IllegalArgumentException("Migration MySQL inconnue : " + version);
         }
@@ -175,19 +189,70 @@ public final class MySqlProfileRepository extends AbstractSqlProfileRepository {
         return config;
     }
 
+    /**
+     * Configuration d'un pool <b>en lecture seule</b> d'une connexion vers une base MySQL externe (source
+     * de migration wFly, SPEC-phase2 A9) : mêmes validations et mêmes protections du pilote que le dépôt,
+     * connexion {@code readOnly} et {@code SET SESSION TRANSACTION READ ONLY} à l'ouverture.
+     *
+     * @param s        paramètres (le mot de passe n'est jamais loggé)
+     * @param poolName nom du pool
+     * @return configuration HikariCP
+     * @throws StorageException si l'hôte, le port, la base ou l'utilisateur sont invalides
+     */
+    public static HikariConfig readOnlyConfig(Settings.MysqlSection s, String poolName) {
+        validate(s);
+        HikariConfig config = new HikariConfig();
+        config.setPoolName(poolName);
+        config.setDriverClassName(DRIVER_CLASS);
+        config.setJdbcUrl("jdbc:mysql://" + s.host() + ":" + s.port() + "/" + s.database());
+        config.setUsername(s.username());
+        config.setPassword(s.password());
+        config.setMaximumPoolSize(1);
+        config.setMinimumIdle(0);
+        config.setConnectionTimeout(10_000L);
+        config.setValidationTimeout(5_000L);
+        config.setReadOnly(true);
+        config.setAutoCommit(true);
+        config.setConnectionInitSql("SET SESSION TRANSACTION READ ONLY");
+        config.addDataSourceProperty("sslMode", s.useSsl() ? "REQUIRED" : "PREFERRED");
+        config.addDataSourceProperty("allowLoadLocalInfile", "false");
+        config.addDataSourceProperty("allowUrlInLocalInfile", "false");
+        config.addDataSourceProperty("autoDeserialize", "false");
+        config.addDataSourceProperty("allowMultiQueries", "false");
+        config.addDataSourceProperty("allowPublicKeyRetrieval", "false");
+        config.addDataSourceProperty("readOnlyPropagatesToServer", "true");
+        config.addDataSourceProperty("characterEncoding", "UTF-8");
+        return config;
+    }
+
     @Override
     protected SchemaMigrator.Dialect dialect() {
         return DIALECT;
     }
 
     @Override
-    protected String upsertSql() {
-        return UPSERT_SQL;
+    protected String findByNameSql() {
+        return FIND_BY_NAME_SQL;
     }
 
     @Override
-    protected String findByNameSql() {
-        return FIND_BY_NAME_SQL;
+    protected String insertIfAbsentSql() {
+        return INSERT_IF_ABSENT_SQL;
+    }
+
+    @Override
+    protected String lockingReadSql() {
+        return LOCKING_READ_SQL;
+    }
+
+    @Override
+    protected String serverUpsertSql() {
+        return SERVER_UPSERT_SQL;
+    }
+
+    @Override
+    protected String serverSelectSql() {
+        return SERVER_SELECT_SQL;
     }
 
     @Override

@@ -4,7 +4,7 @@ import com.azurhosts.aafly.AAFlyPlugin;
 import com.azurhosts.aafly.api.events.FlightTimeChangeEvent;
 import com.azurhosts.aafly.config.Lang;
 import com.azurhosts.aafly.config.Settings;
-import com.azurhosts.aafly.core.DisableCause;
+import com.azurhosts.aafly.api.DisableCause;
 import com.azurhosts.aafly.core.FlightProfile;
 import com.azurhosts.aafly.core.FlightService;
 import com.azurhosts.aafly.storage.StorageManager;

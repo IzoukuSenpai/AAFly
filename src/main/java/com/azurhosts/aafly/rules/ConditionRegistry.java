@@ -9,6 +9,8 @@ import org.spongepowered.configurate.ConfigurationNode;
  * {@code string_regex}, {@code number_equals}, {@code number_greater}, {@code number_less},
  * {@code number_between}, {@code has_permission}, {@code world}, {@code gamemode}.
  * Les types sont normalisés en minuscules. Thread-safe (enregistrements possibles depuis l'API).
+ * Composites réservés (SPEC-phase2 A1) : {@code any}/{@code or}, {@code all}/{@code and} ; négation par
+ * préfixe {@code !} ou {@code negate: true}.
  */
 public interface ConditionRegistry {
 
@@ -20,6 +22,18 @@ public interface ConditionRegistry {
      * @throws IllegalArgumentException si le type est invalide ou déjà enregistré
      */
     void register(String type, ConditionFactory factory);
+
+    /**
+     * Retire un type enregistré par un plugin tiers (ex. à sa désactivation). Les types intégrés et
+     * composites ne peuvent pas être retirés. Les règles déjà chargées gardent leur condition jusqu'au
+     * prochain rechargement des règles.
+     *
+     * @param type type (insensible à la casse)
+     * @return {@code true} si le type a été retiré
+     */
+    default boolean unregister(String type) {
+        return false;
+    }
 
     /**
      * Construit une condition.

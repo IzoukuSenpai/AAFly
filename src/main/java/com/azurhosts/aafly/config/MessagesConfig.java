@@ -83,9 +83,11 @@ public final class MessagesConfig {
                         errors.add(KEY_TIME_REMAINING + "." + rawKey + " : le seuil doit être > 0");
                         continue;
                     }
-                    List<String> actions = stringList(e.getValue());
+                    // A8 : liste d'actions, ou forme héritée wFly { commands: "..." } convertie en [command].
+                    List<String> actions = com.azurhosts.aafly.action.ThresholdActions.read(e.getValue());
                     if (actions == null) {
-                        errors.add(KEY_TIME_REMAINING + "." + rawKey + " : liste d'actions attendue");
+                        errors.add(KEY_TIME_REMAINING + "." + rawKey
+                                + " : liste d'actions ou { commands: \"...\" } attendue");
                         continue;
                     }
                     thresholds.put(seconds, actions);

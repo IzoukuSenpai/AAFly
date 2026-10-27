@@ -43,3 +43,53 @@ Le dépôt source Wayvi2/wFLyV2 annoncé sur SpigotMC n'existe plus (404) → re
 - [x] Lot 5/5 : loadOnline remove O(1), filtre NPC détecteur, règle alliance unifiée
 - [x] Build final vert : C:/Users/izouk/Ruza Drive/Synchro inter PC/AAFly/build/libs/AAFly-1.0.0.jar
 - [x] Vérification finding profils suspendus après reload : confirmé, non réfuté
+- [x] 2026-10-27 : projet deplace dans Minecraft\AAFly ; commit local de base 07290e1 (phase 1, non pousse). REA garde en local dans docs/private (depot public).
+- [~] 2026-10-27 : workflow phase 2 lance (REA, migration wFly/TempFly, API + jar API, coexistence, module aaitems-integration-aafly).
+- [x] Phase 2 rules-actions : composites any/all, négation, tri stable, sons, seuils hérités
+- [x] API publique AAFlyApi, grant, apiJar, vérification isolation, tests
+- [x] Coexistence : propriété du vol, atterrissage sûr, exemptions, ThreatResolver
+- [x] Stockage phase 2 (verrou optimiste, schéma v2) et migration wFly/TempFly
+- [x] Intégration phase 2 : câblage, about, clés inconnues, README, SPEC
+- [x] Module aaitems-integration-aafly : fournisseur de vol, câblage, docs, tests
+- [x] 2026-10-27 : phase 1 verifiee hors Ruza (115 tests, 0 echec) et poussee sur GitHub main (07290e1).
+- [x] Revue lecture seule intégration AAFly dans AAItems : findings remontés
+- [x] Revue sécurité lecture seule : migration, API grant, coexistence, verrou optimiste
+- [x] Revue lecture seule SPEC-phase2 A/B2/B3, API jar, README, configs
+- [x] Finding README config.yml incomplet : confirmé, clés manquantes au bloc
+- [x] Finding README config.yml non à jour : confirmé, non réfuté
+- [x] Finding mayfly persisté multi-serveur vérifié : confirmé, non réfuté
+- [x] Vérif finding README Java 21 : bytecode 69 confirmé, non réfuté
+- [x] Réfutation README Java21 : finding confirmé, bytecode 69, aucun release
+- [x] Réfutation finding reprise propriété connexion : décision documentée SPEC §14
+- [x] Vérif finding verrou optimiste : delta distant non réappliqué, confirmé
+- [x] Vérif finding verrou optimiste non réappliqué en mémoire : confirmé
+- [x] Vérif finding grant autoEnable perte propriété vol : confirmé
+- [x] Contre-vérification finding mayfly persisté flightEnabled=false : confirmé, non géré
+- [x] Vérifié finding tests DefaultAAFlyApi absents : confirmé, non réfuté
+- [x] Vérifié finding reloadAfterImport : perte des deltas confirmée, non réfuté
+- [x] Vérif finding grant autoEnable après perte propriété : confirmé
+- [x] Vérif finding about API/intégrations invisibles : confirmé, non réfuté
+- [x] Contre-vérification reloadAfterImport : écrasement solde mémoire confirmé, finding maintenu
+- [x] Vérifié finding tests absents dirty flag/B3 : confirmé, non réfuté
+- [x] Vérifié finding about : listes messages non fusionnées, confirmé
+- [x] Vérif finding target.activated/deactivated jamais envoyés : confirmé, non réfuté
+- [x] Vérif finding tests A5/B3 manquants : confirmé, non réfuté
+- [x] Vérifié finding tests DefaultAAFlyApi absents : confirmé, aucune couverture
+- [x] Vérif finding retard branche AAItems sur origin/main AAEngine : confirmé
+- [x] Vérifié finding target.activated/deactivated : clés jamais envoyées, confirmé
+- [x] Vérifié finding arrondi ticks/secondes AAFlyFlightProvider : confirmé, non réfuté
+- [x] Vérifié finding retard branche AAItems sur origin/main AAEngine : confirmé
+- [x] Contre-vérification finding claim reconnexion mayfly AAItems : confirmé, non réfuté
+- [x] Vérifié finding arrondi ticks->secondes AAFlyFlightProvider : comportement documenté
+- [x] Finding FlightService temps natif décompté pendant vol AAFly : confirmé
+- [x] Réfutation finding grant/enable : aucune exception déclenchable après crédit
+- [x] Verification finding max-seconds AAFly flight_time : confirme, non gere ailleurs
+- [x] Vérif finding grant/enable post-crédit : non réfuté, exception non rattrapée
+- [x] Vérif finding flight_time au-delà de max-seconds : confirmé, faible
+- [x] Vérif finding temps natif décompté pendant vol AAFly : confirmé
+- [x] Finding join AAItems/AAFly allowFlight : confirmé, non géré ailleurs
+- [x] Finding join/allowFlight AAItems réfuté : état identique au quit
+- [x] AAItems : rebase origin/main, vol exact en secondes, propriétaire unique
+- [x] AAFly : 12 findings corrigés (mayfly PDC, delta distant, import, API)
+- [ ] 2026-10-27 : DinoRealms (demande Dylan) : preparer localement un paquet AAFly + AAItems (fournisseur de vol aafly) pour les plumes vol-dino. Regle AAFly : vol seulement dans SuperiorWorld. Paper serveur 26.2-129 : verifier la compat de l API 26.3. Rien d envoye au serveur.
+- [x] Vérification finale AAFly/AAItems : builds, tests, git status, nettoyage

@@ -42,6 +42,10 @@ flight:
   keep-flight-on-world-change: true
   # Vitesse par défaut (0.1 à 1.0).
   default-speed: 0.1
+  safe-landing:
+    # Profondeur maximale de recherche du sol sous le joueur (1 à 4096 blocs). Sans sol sûr :
+    # eau, puis dernière position sûre mémorisée, puis point d'apparition du monde.
+    max-scan: 64
 
 actionbar:
   enabled: false
@@ -124,6 +128,16 @@ commands:
   # Délai minimal (ms) entre deux /fly d'un même joueur (anti-spam, 0 = désactivé, max 60000).
   toggle-cooldown-millis: 1000
 
+api:
+  # Autorise les plugins tiers (ex. AAItems) à créditer du temps de vol via l'API AAFly.
+  allow-external-grants: true
+
+integrations:
+  aaitems:
+    # Si AAItems est présent, /aafly about affiche l'état de la délégation du vol.
+    # AAFly ne retire jamais un vol qu'il n'a pas lui-même accordé.
+    enabled: true
+
 # Règles de vol : triées par priorité croissante ; la première dont toutes les conditions
 # correspondent décide (ALLOW / DENY). Aucune règle -> ALLOW.
 # Exemple :
@@ -133,6 +147,20 @@ commands:
 #       c: { type: string_equals, input: "%combatlogx_in_combat%", value: "true" }
 #     result: DENY
 #     actions: ["[actionbar] <red>Combat en cours"]
+# Conditions composites (toutes les conditions d'une règle restent combinées en ET) :
+#   type: any (alias or)  -> au moins un enfant vrai ; type: all (alias and) -> tous vrais.
+#   children: { nom: { type: ..., ... }, ... }  (1 à 32 enfants, profondeur max 8 ; groupe vide refusé)
+#   Négation : type: "!has_permission" ou negate: true. Types insensibles à la casse.
+#   pvp_zone:
+#     priority: 2
+#     conditions:
+#       zone:
+#         type: any
+#         children:
+#           arene: { type: world, worlds: [arena] }
+#           combat: { type: string_equals, input: "%combatlogx_in_combat%", value: "true" }
+#       staff: { type: "!has_permission", permission: "aafly.staff" }
+#     result: DENY
 fly-rules:
   default: { priority: 999, result: ALLOW }
 

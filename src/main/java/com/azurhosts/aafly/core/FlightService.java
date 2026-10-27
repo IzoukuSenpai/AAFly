@@ -1,5 +1,6 @@
 package com.azurhosts.aafly.core;
 
+import com.azurhosts.aafly.api.DisableCause;
 import com.azurhosts.aafly.api.events.FlightTimeChangeEvent;
 import com.azurhosts.aafly.rules.RuleDecision;
 import java.util.UUID;
@@ -141,6 +142,22 @@ public interface FlightService {
     }
 
     /**
+     * Variante de {@link #setTime(UUID, long, CommandSender, FlightTimeChangeEvent.Reason)} transmettant
+     * l'identifiant du plugin appelant ({@code AAFlyApi#grant}) dans {@code FlightTimeChangeEvent#getSource()}.
+     *
+     * @param uuid    joueur
+     * @param seconds nouvelle valeur ≥ 0
+     * @param actor   auteur ou {@code null}
+     * @param reason  nature de la modification
+     * @param source  identifiant du plugin appelant, ou {@code null}
+     * @return résultat, complété sur le main thread (immédiatement si le joueur est en ligne)
+     */
+    default CompletableFuture<TimeChangeResult> setTime(UUID uuid, long seconds, @Nullable CommandSender actor,
+                                                        FlightTimeChangeEvent.Reason reason, @Nullable String source) {
+        return setTime(uuid, seconds, actor, reason);
+    }
+
+    /**
      * Fixe le temps (borné à {@code [0, limits.max-seconds]}).
      *
      * @param uuid    joueur
@@ -205,6 +222,13 @@ public interface FlightService {
      * @return {@code true} si le vol est suspendu par une règle ou par un ennemi proche
      */
     boolean isSuspendedByRule(UUID uuid);
+
+    /**
+     * @param uuid joueur
+     * @return {@code true} si le vol physique ({@code allowFlight}) de ce joueur a été accordé par AAFly et ne lui a
+     *         pas été retiré depuis par un tiers (SPEC-phase2 B3)
+     */
+    boolean ownsFlight(UUID uuid);
 
     /**
      * Applique au joueur l'état persistant de son profil à la connexion (décompte hors-ligne,

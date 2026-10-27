@@ -1,6 +1,6 @@
 package com.azurhosts.aafly.api.events;
 
-import com.azurhosts.aafly.core.DisableCause;
+import com.azurhosts.aafly.api.DisableCause;
 import java.util.Objects;
 import org.bukkit.entity.Player;
 import org.bukkit.event.Cancellable;

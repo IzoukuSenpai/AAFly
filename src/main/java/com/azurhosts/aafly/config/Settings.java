@@ -34,6 +34,8 @@ import org.spongepowered.configurate.objectmapping.ConfigSerializable;
  * @param commands       section {@code commands}
  * @param flyRules       nœud brut {@code fly-rules} (copie détachée, interprétée par le RuleEngine)
  * @param decrementRules nœud brut {@code decrement-rules} (copie détachée)
+ * @param api            section {@code api} (SPEC-phase2 B2/B3)
+ * @param integrations   section {@code integrations} (SPEC-phase2 B3)
  */
 public record Settings(
         int configVersion,
@@ -53,7 +55,9 @@ public record Settings(
         CompatSection compat,
         CommandsSection commands,
         ConfigurationNode flyRules,
-        ConfigurationNode decrementRules
+        ConfigurationNode decrementRules,
+        ApiSection api,
+        IntegrationsSection integrations
 ) {
 
     /** Version courante du schéma de {@code config.yml}. */
@@ -76,6 +80,76 @@ public record Settings(
         commands = Objects.requireNonNullElseGet(commands, CommandsSection::defaults);
         flyRules = flyRules == null ? BasicConfigurationNode.root() : flyRules;
         decrementRules = decrementRules == null ? BasicConfigurationNode.root() : decrementRules;
+        api = Objects.requireNonNullElseGet(api, ApiSection::defaults);
+        integrations = Objects.requireNonNullElseGet(integrations, IntegrationsSection::defaults);
+    }
+
+    /**
+     * Constructeur de compatibilité (forme phase 1, sans {@code api} ni {@code integrations} : valeurs par défaut).
+     */
+    public Settings(int configVersion, boolean debug, StorageSection storage, LimitsSection limits,
+                    DecrementSection decrement, FlightSection flight, ActionBarSection actionbar, RulesSection rules,
+                    PvpSection pvp, GiveSection give, TokenSection token, TimedFlySection timedFly,
+                    FormatSection format, ActionsSection actions, CompatSection compat, CommandsSection commands,
+                    ConfigurationNode flyRules, ConfigurationNode decrementRules) {
+        this(configVersion, debug, storage, limits, decrement, flight, actionbar, rules, pvp, give, token, timedFly,
+                format, actions, compat, commands, flyRules, decrementRules, null, null);
+    }
+
+    /**
+     * Section {@code api} (SPEC-phase2 B2/B3).
+     *
+     * @param allowExternalGrants {@code api.allow-external-grants} : autorise {@code AAFlyApi#grant}
+     *                            (sinon {@code DISABLED_BY_CONFIG})
+     */
+    @ConfigSerializable
+    public record ApiSection(boolean allowExternalGrants) {
+        public static ApiSection defaults() {
+            return new ApiSection(true);
+        }
+    }
+
+    /**
+     * Section {@code integrations} (SPEC-phase2 B3).
+     *
+     * @param aaitems sous-section {@code integrations.aaitems}
+     */
+    @ConfigSerializable
+    public record IntegrationsSection(AaItemsSection aaitems) {
+        public IntegrationsSection {
+            aaitems = Objects.requireNonNullElseGet(aaitems, AaItemsSection::defaults);
+        }
+
+        public static IntegrationsSection defaults() {
+            return new IntegrationsSection(AaItemsSection.defaults());
+        }
+    }
+
+    /**
+     * Sous-section {@code integrations.aaitems}.
+     *
+     * @param enabled si AAItems est présent, {@code /aafly about} affiche l'état de la délégation du vol
+     */
+    @ConfigSerializable
+    public record AaItemsSection(boolean enabled) {
+        public static AaItemsSection defaults() {
+            return new AaItemsSection(true);
+        }
+    }
+
+    /**
+     * Sous-section {@code flight.safe-landing} (SPEC-phase2 A3).
+     *
+     * @param maxScan nombre maximal de blocs inspectés sous le joueur (1–4096, défaut 64)
+     */
+    @ConfigSerializable
+    public record SafeLandingSection(int maxScan) {
+        /** Profondeur par défaut. */
+        public static final int DEFAULT_MAX_SCAN = 64;
+
+        public static SafeLandingSection defaults() {
+            return new SafeLandingSection(DEFAULT_MAX_SCAN);
+        }
     }
 
     /** Section {@code storage}. */
@@ -139,9 +213,14 @@ public record Settings(
     /** Section {@code flight}. */
     @ConfigSerializable
     public record FlightSection(boolean tpOnFloorWhenDisabled, boolean autoReactivateAfterRule,
-                                boolean unlimitedForOp, boolean keepFlightOnWorldChange, double defaultSpeed) {
+                                boolean unlimitedForOp, boolean keepFlightOnWorldChange, double defaultSpeed,
+                                SafeLandingSection safeLanding) {
+        public FlightSection {
+            safeLanding = Objects.requireNonNullElseGet(safeLanding, SafeLandingSection::defaults);
+        }
+
         public static FlightSection defaults() {
-            return new FlightSection(true, true, false, true, 0.1D);
+            return new FlightSection(true, true, false, true, 0.1D, SafeLandingSection.defaults());
         }
     }
 

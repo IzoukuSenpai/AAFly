@@ -1,8 +1,10 @@
-package com.azurhosts.aafly.core;
+package com.azurhosts.aafly.api;
 
 /**
- * Origine d'un changement d'état du vol (activation ou désactivation).
- * Utilisée par {@link FlightService} et transmise dans {@code FlightToggleEvent}.
+ * Origine d'un changement d'état du vol (activation ou désactivation), transmise dans
+ * {@code FlightToggleEvent}. Fait partie de l'API publique (déplacée de {@code core} en phase 2).
+ *
+ * <p>Developped by AzurHOSTS.com and powered by AzurWare.fr.
  */
 public enum DisableCause {
     /** Le joueur lui-même ({@code /fly}). */
@@ -28,7 +30,7 @@ public enum DisableCause {
      * de groupe utilise {@link #EXPIRED}, la recharge n'est pas un changement d'état du vol).
      */
     TIMED_FLY,
-    /** Plugin tiers via {@code FlightApi}. */
+    /** Plugin tiers via {@link AAFlyApi}. */
     API;
 
     /**

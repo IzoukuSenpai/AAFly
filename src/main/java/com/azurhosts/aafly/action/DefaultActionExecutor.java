@@ -35,6 +35,7 @@ public final class DefaultActionExecutor implements ActionExecutor {
         this.parser = Objects.requireNonNull(parser, "parser");
         this.runtime = Objects.requireNonNull(runtime, "runtime");
         this.messages = Objects.requireNonNull(messages, "messages");
+        precompile();
     }
 
     /**
@@ -46,6 +47,21 @@ public final class DefaultActionExecutor implements ActionExecutor {
     public void reload(MessagesConfig newMessages) {
         this.messages = Objects.requireNonNull(newMessages, "messages");
         named.clear();
+        precompile();
+    }
+
+    /**
+     * Listes nommées compilées au chargement (SPEC-phase2 A7) : les actions invalides sont signalées
+     * (WARN avec origine et cause) au démarrage / {@code /aafly reload}, pas au premier usage.
+     */
+    public static final List<String> PRECOMPILED_KEYS = List.of(MessagesConfig.KEY_ON_ENABLE,
+            MessagesConfig.KEY_ON_DISABLE, MessagesConfig.KEY_ON_EXPIRE, MessagesConfig.KEY_NOT_ALLOWED_HERE);
+
+    private void precompile() {
+        MessagesConfig m = messages;
+        for (String key : PRECOMPILED_KEYS) {
+            named.put(key, parser.parseAll(m.list(key), "messages.yml:" + key));
+        }
     }
 
     @Override
@@ -83,8 +99,11 @@ public final class DefaultActionExecutor implements ActionExecutor {
             try {
                 action.execute(player, frozen);
             } catch (RuntimeException e) {
-                runtime.logger().log(Level.WARNING, "Erreur pendant l'exécution d'une action pour "
-                        + player.getName() + " : " + e.getClass().getSimpleName(), e);
+                String what = action instanceof ConfiguredAction ca ? DefaultActionParser.shorten(ca.raw())
+                        : action.getClass().getName();
+                runtime.logger().log(Level.WARNING, "[" + DefaultActionParser.shorten(action.origin())
+                        + "] Erreur pendant l'exécution de l'action « " + what + " » pour " + player.getName()
+                        + " : " + e.getClass().getSimpleName(), e);
             }
         }
     }

@@ -1,53 +1,77 @@
 package com.azurhosts.aafly.core;
 
+import com.azurhosts.aafly.api.ThreatResolver;
+import com.azurhosts.aafly.api.ThreatResolver.Verdict;
 import com.azurhosts.aafly.config.Settings;
 import com.azurhosts.aafly.placeholder.PlaceholderBridge;
-import com.azurhosts.aafly.rules.NearbyPlayerChecker;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.function.Supplier;
-import org.bukkit.Bukkit;
+import java.util.logging.Logger;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
 
 /**
- * Détection d'un joueur « ennemi » à proximité (section {@code pvp}, SPEC §4 « Nearby / PVP »).
+ * Détection d'une menace à proximité (section {@code pvp}, SPEC §4 « Nearby / PVP », SPEC-phase2 A6).
  *
- * <p>Un joueur proche est considéré comme allié s'il partage, pour <b>tous</b> les placeholders de
- * {@code pvp.bypass-placeholders}, la même valeur non vide et effectivement résolue (même land, même faction…).
- * Une valeur vide ou non résolue (placeholder renvoyé tel quel) ne rend jamais deux joueurs alliés :
- * deux joueurs « sans faction » restent ennemis. Les spectateurs, les NPC (métadonnée {@code NPC}), les entités
- * invalides et les joueurs invisibles pour le joueur testé sont ignorés. Main thread uniquement ; coût O(joueurs dans le rayon).
+ * <p>Pour chaque joueur dans le rayon {@code pvp.radius} — hors spectateurs, NPC (métadonnée {@code NPC}),
+ * entités invalides et joueurs invisibles pour le joueur testé — l'avis est demandé d'abord aux résolveurs
+ * tiers ({@link ThreatResolverRegistry}, injectés par l'API) puis, s'ils s'abstiennent tous, au résolveur par
+ * défaut ({@link BuiltinThreatResolver} : règle {@code pvp.bypass-placeholders}). Le premier joueur jugé
+ * menaçant suffit.
  *
- * <p>Les valeurs résolues sont mémorisées par joueur pour la durée d'un tick serveur : chaque joueur est
- * résolu via PlaceholderAPI au plus une fois par tick, quel que soit le nombre de joueurs en vol autour de lui.
+ * <p>Aucun travail sur {@code PlayerMoveEvent} : appelé par le ticker (throttlé par
+ * {@code pvp.check-interval-seconds}), à l'activation et sur {@code PlayerToggleFlightEvent}. Main thread
+ * uniquement ; coût O(joueurs dans le rayon), placeholders mis en cache 2 s par le résolveur par défaut.
+ *
+ * <p>Developped by AzurHOSTS.com and powered by AzurWare.fr.
  */
 public final class NearbyEnemyDetector {
 
     private final Supplier<Settings> settings;
-    private final PlaceholderBridge placeholders;
-    /** Valeurs bypass résolues par joueur, valables pour {@link #memoTick} et {@link #memoInputs}. */
-    private final Map<UUID, String[]> tickMemo = new HashMap<>();
-    private int memoTick = Integer.MIN_VALUE;
-    private List<String> memoInputs = List.of();
+    private final ThreatResolverRegistry registry;
+    private final ThreatResolver fallback;
 
     /**
+     * Détecteur avec le résolveur par défaut et un registre tiers vide (compatibilité de câblage).
+     *
      * @param settings     réglages courants (relus à chaque appel : compatible {@code /aafly reload})
      * @param placeholders pont PlaceholderAPI
      */
     public NearbyEnemyDetector(Supplier<Settings> settings, PlaceholderBridge placeholders) {
-        this.settings = Objects.requireNonNull(settings, "settings");
-        this.placeholders = Objects.requireNonNull(placeholders, "placeholders");
+        this(settings, new ThreatResolverRegistry(Logger.getLogger("AAFly")),
+                new BuiltinThreatResolver(settings, placeholders));
     }
 
     /**
-     * @param player joueur en vol
-     * @return {@code true} si au moins un ennemi se trouve dans le rayon {@code pvp.radius}
+     * @param settings réglages courants
+     * @param registry résolveurs tiers (API)
+     * @param fallback résolveur par défaut, consulté quand tous les résolveurs tiers s'abstiennent
+     */
+    public NearbyEnemyDetector(Supplier<Settings> settings, ThreatResolverRegistry registry, ThreatResolver fallback) {
+        this.settings = Objects.requireNonNull(settings, "settings");
+        this.registry = Objects.requireNonNull(registry, "registry");
+        this.fallback = Objects.requireNonNull(fallback, "fallback");
+    }
+
+    /**
+     * @return registre des résolveurs tiers (enregistrement via {@code AAFlyApi#registerThreatResolver})
+     */
+    public ThreatResolverRegistry registry() {
+        return registry;
+    }
+
+    /**
+     * @return {@code true} si la détection est active ({@code pvp.enabled})
+     */
+    public boolean enabled() {
+        return settings.get().pvp().enabled();
+    }
+
+    /**
+     * @param player joueur en vol (ou qui demande le vol)
+     * @return {@code true} si au moins une menace se trouve dans le rayon {@code pvp.radius}
      */
     public boolean hasEnemyNearby(Player player) {
         Settings.PvpSection pvp = settings.get().pvp();
@@ -56,10 +80,9 @@ public final class NearbyEnemyDetector {
         }
         double radius = Math.max(1, Math.min(64, pvp.radius()));
         Location loc = player.getLocation();
-        List<String> bypass = pvp.bypassPlaceholders();
-        String[] own = null;
+        UUID self = player.getUniqueId();
         for (Player other : loc.getWorld().getNearbyPlayers(loc, radius)) {
-            if (other == player || other.getUniqueId().equals(player.getUniqueId())) {
+            if (other == player || other.getUniqueId().equals(self)) {
                 continue;
             }
             // NPC (métadonnée « NPC », ex. Citizens) et entités invalides ignorés : évite aussi des appels PAPI inutiles.
@@ -67,39 +90,43 @@ public final class NearbyEnemyDetector {
                     || !player.canSee(other)) {
                 continue;
             }
-            if (bypass.isEmpty() || !placeholders.available()) {
-                return true;
-            }
-            if (own == null) {
-                own = resolveAll(player, bypass);
-            }
-            if (!isAlly(own, resolveAll(other, bypass), bypass)) {
+            if (isThreat(player, other)) {
                 return true;
             }
         }
         return false;
     }
 
-    private String[] resolveAll(Player p, List<String> inputs) {
-        int tick = Bukkit.getCurrentTick();
-        if (tick != memoTick || inputs != memoInputs) {
-            tickMemo.clear();
-            memoTick = tick;
-            memoInputs = inputs;
+    /**
+     * Avis final sur un joueur proche : résolveurs tiers, puis résolveur par défaut s'ils s'abstiennent.
+     * Une erreur du résolveur par défaut vaut menace (choix sûr).
+     */
+    private boolean isThreat(Player flyer, Player other) {
+        Verdict external = registry.resolve(flyer, other);
+        if (external != Verdict.ABSTAIN) {
+            return external == Verdict.THREAT;
         }
-        return tickMemo.computeIfAbsent(p.getUniqueId(), id -> resolve(p, inputs));
+        Verdict builtin;
+        try {
+            builtin = fallback.resolve(flyer, other);
+        } catch (RuntimeException e) {
+            return true;
+        }
+        return decide(external, builtin);
     }
 
-    private String[] resolve(Player p, List<String> inputs) {
-        String[] out = new String[inputs.size()];
-        for (int i = 0; i < out.length; i++) {
-            out[i] = placeholders.apply(p, inputs.get(i));
+    /**
+     * Décision pure : un avis tiers tranche ; sinon l'avis par défaut s'applique, et toute abstention ou
+     * absence d'avis par défaut vaut menace (jamais d'alliance implicite).
+     *
+     * @param external avis combiné des résolveurs tiers
+     * @param builtin  avis du résolveur par défaut (peut être {@code null})
+     * @return {@code true} si le joueur proche est une menace
+     */
+    static boolean decide(Verdict external, Verdict builtin) {
+        if (external != Verdict.ABSTAIN) {
+            return external == Verdict.THREAT;
         }
-        return out;
-    }
-
-    /** Règle d'alliance unique, partagée avec {@link NearbyPlayerChecker#allied}. */
-    private static boolean isAlly(String[] a, String[] b, List<String> raw) {
-        return NearbyPlayerChecker.allied(raw, Arrays.asList(a), Arrays.asList(b));
+        return builtin != Verdict.NOT_THREAT;
     }
 }

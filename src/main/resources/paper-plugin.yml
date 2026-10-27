@@ -39,3 +39,4 @@ permissions:
   aafly.admin.token: { default: op, description: "/aafly convert" }
   aafly.admin.reload: { default: op, description: "/aafly reload" }
   aafly.admin.about: { default: op, description: "/aafly about" }
+  aafly.admin.migrate: { default: false, description: "/aafly migrate (console uniquement)" }

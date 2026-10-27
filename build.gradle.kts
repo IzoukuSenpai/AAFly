@@ -79,3 +79,108 @@ tasks.jar {
         )
     }
 }
+
+// ---------------------------------------------------------------- API publique (SPEC-phase2 B2)
+// build/libs/AAFly-api-<version>.jar (+ -sources, -javadoc) : uniquement com/azurhosts/aafly/api/**,
+// pour que des plugins tiers compilent contre l'API sans embarquer AAFly.
+
+val apiPackages = "com/azurhosts/aafly/api/**"
+
+/**
+ * Vérifie que les classes de l'API ne référencent que l'API elle-même, Paper API et le JDK : analyse des
+ * constant pools (noms internes "a/b/C" et descripteurs "La/b/C;" y figurent en clair, ASCII).
+ */
+abstract class VerifyApiIsolation : DefaultTask() {
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val apiClasses: ConfigurableFileCollection
+
+    @get:OutputFile
+    abstract val marker: RegularFileProperty
+
+    @TaskAction
+    fun verify() {
+        val own = "com/azurhosts/aafly/"
+        val allowed = "com/azurhosts/aafly/api/"
+        // Bibliothèques runtime d'AAFly et soft-depends : interdites dans l'API.
+        val forbidden = listOf("org/spongepowered/", "com/zaxxer/", "org/sqlite/", "com/mysql/",
+            "me/clip/", "net/luckperms/")
+        val violations = mutableListOf<String>()
+        val classes = apiClasses.files.filter { it.isFile && it.name.endsWith(".class") }
+        if (classes.isEmpty()) {
+            throw GradleException("Aucune classe d'API trouvée (com/azurhosts/aafly/api)")
+        }
+        for (file in classes) {
+            val text = String(file.readBytes(), Charsets.ISO_8859_1)
+            var i = text.indexOf(own)
+            while (i >= 0) {
+                if (!text.startsWith(allowed, i)) {
+                    val end = text.indexOfAny(charArrayOf(';', '<', '\u0000', ')'), i).let { if (it < 0) text.length else it }
+                    violations += "${file.name} -> ${text.substring(i, minOf(end, i + 120)).filter { it.code in 32..126 }}"
+                }
+                i = text.indexOf(own, i + own.length)
+            }
+            forbidden.filter { text.contains(it) }.forEach { violations += "${file.name} -> $it" }
+        }
+        if (violations.isNotEmpty()) {
+            throw GradleException("L'API publique dépend de types internes ou de bibliothèques non-Paper :\n  "
+                + violations.distinct().joinToString("\n  "))
+        }
+        marker.get().asFile.writeText("OK ${classes.size} classes\n")
+    }
+}
+
+val verifyApiIsolation = tasks.register<VerifyApiIsolation>("verifyApiIsolation") {
+    group = "verification"
+    description = "Vérifie que com.azurhosts.aafly.api ne dépend que de Paper API et du JDK."
+    apiClasses.from(sourceSets.main.map { it.output.classesDirs.asFileTree.matching { include(apiPackages) } })
+    marker.set(layout.buildDirectory.file("tmp/verifyApiIsolation/ok.txt"))
+}
+
+val apiJar = tasks.register<Jar>("apiJar") {
+    group = "build"
+    description = "Assemble AAFly-api-<version>.jar (API publique uniquement)."
+    dependsOn(verifyApiIsolation)
+    archiveBaseName.set("AAFly-api")
+    from(sourceSets.main.map { it.output.classesDirs }) { include(apiPackages) }
+    from("LICENSE") { into("META-INF") }
+    manifest {
+        attributes(
+            "Implementation-Title" to "AAFly API",
+            "Implementation-Version" to project.version,
+            "Implementation-Vendor" to "AzurHOSTS",
+        )
+    }
+}
+
+val apiSourcesJar = tasks.register<Jar>("apiSourcesJar") {
+    group = "build"
+    description = "Sources de l'API publique AAFly."
+    archiveBaseName.set("AAFly-api")
+    archiveClassifier.set("sources")
+    from(sourceSets.main.map { it.allJava }) { include(apiPackages) }
+    from("LICENSE") { into("META-INF") }
+}
+
+val apiJavadoc = tasks.register<Javadoc>("apiJavadoc") {
+    group = "documentation"
+    description = "Javadoc de l'API publique AAFly (hors ligne : aucun lien réseau)."
+    source(sourceSets.main.map { it.allJava.matching { include(apiPackages) } })
+    classpath = files(sourceSets.main.map { it.compileClasspath })
+    destinationDir = layout.buildDirectory.dir("docs/api-javadoc").get().asFile
+    (options as StandardJavadocDocletOptions).apply {
+        windowTitle = "AAFly API ${project.version}"
+        docTitle = "AAFly API ${project.version} — AzurHOSTS"
+    }
+}
+
+val apiJavadocJar = tasks.register<Jar>("apiJavadocJar") {
+    group = "build"
+    description = "Javadoc de l'API publique AAFly."
+    archiveBaseName.set("AAFly-api")
+    archiveClassifier.set("javadoc")
+    from(apiJavadoc)
+}
+
+tasks.assemble { dependsOn(apiJar, apiSourcesJar, apiJavadocJar) }
+tasks.check { dependsOn(verifyApiIsolation) }

@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Set;
 import java.util.logging.Logger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -71,6 +72,12 @@ public final class DefaultActionParser implements ActionParser {
 
     @Override
     public Action parse(String raw) throws InvalidActionException {
+        return parse(raw, "config");
+    }
+
+    @Override
+    public Action parse(String raw, String origin) throws InvalidActionException {
+        String o = origin == null || origin.isBlank() ? "config" : origin;
         if (raw == null || raw.isBlank()) {
             throw new InvalidActionException("action vide");
         }
@@ -89,15 +96,15 @@ public final class DefaultActionParser implements ActionParser {
         return switch (type) {
             case MESSAGE, ACTIONBAR, SUBTITLE -> {
                 requireContent(content);
-                yield new ConfiguredAction.TextAction(type, raw, ActionTemplate.parse(content), runtime);
+                yield new ConfiguredAction.TextAction(type, o, raw, ActionTemplate.parse(content), runtime);
             }
-            case TITLE -> parseTitle(raw, content);
-            case COMMAND, PLAYER -> parseCommand(type, raw, content);
-            case SOUND -> parseSound(raw, content);
+            case TITLE -> parseTitle(o, raw, content);
+            case COMMAND, PLAYER -> parseCommand(type, o, raw, content);
+            case SOUND -> parseSound(o, raw, content);
         };
     }
 
-    private Action parseTitle(String raw, String content) throws InvalidActionException {
+    private Action parseTitle(String origin, String raw, String content) throws InvalidActionException {
         requireContent(content);
         int sep = content.indexOf(';');
         String title = sep < 0 ? content : content.substring(0, sep);
@@ -105,10 +112,10 @@ public final class DefaultActionParser implements ActionParser {
         if (title.isBlank() && subtitle.isBlank()) {
             throw new InvalidActionException("titre et sous-titre vides");
         }
-        return new ConfiguredAction.TitleAction(raw, ActionTemplate.parse(title), ActionTemplate.parse(subtitle), runtime);
+        return new ConfiguredAction.TitleAction(origin, raw,ActionTemplate.parse(title), ActionTemplate.parse(subtitle), runtime);
     }
 
-    private Action parseCommand(ActionType type, String raw, String content) throws InvalidActionException {
+    private Action parseCommand(ActionType type, String origin, String raw, String content) throws InvalidActionException {
         if (type == ActionType.PLAYER && !allowPlayerCommands) {
             throw new InvalidActionException("[player] désactivé (actions.allow-player-commands: false)");
         }
@@ -123,10 +130,10 @@ public final class DefaultActionParser implements ActionParser {
         if (LINE_BREAK.matcher(cmd).find()) {
             throw new InvalidActionException("la commande ne doit pas contenir de retour à la ligne");
         }
-        return new ConfiguredAction.CommandAction(type, raw, ActionTemplate.parse(cmd), runtime);
+        return new ConfiguredAction.CommandAction(type, origin, raw,ActionTemplate.parse(cmd), runtime);
     }
 
-    private Action parseSound(String raw, String content) throws InvalidActionException {
+    private Action parseSound(String origin, String raw, String content) throws InvalidActionException {
         String[] parts = content.strip().split(";", -1);
         if (parts.length != 1 && parts.length != 3) {
             throw new InvalidActionException("son : format attendu NOM ou NOM;volume;pitch");
@@ -141,18 +148,30 @@ public final class DefaultActionParser implements ActionParser {
             volume = parseFloat(parts[1], "volume", 0.0F, 10.0F);
             pitch = parseFloat(parts[2], "pitch", 0.0F, 2.0F);
         }
+        // Sons validés au chargement (SPEC-phase2 A7) quand le serveur fournit la liste des sons.
+        Set<Key> known = runtime.knownSounds();
         if (SOUND_ENUM.matcher(name).matches()) {
-            return new ConfiguredAction.SoundAction(raw, null, name, volume, pitch, runtime);
+            Key resolved = runtime.resolveSoundName(name).orElse(null);
+            if (resolved == null && known != null) {
+                throw new InvalidActionException("son inconnu « " + shorten(name) + " »");
+            }
+            return new ConfiguredAction.SoundAction(origin, raw, resolved, name, volume, pitch, runtime);
         }
         String lower = name.toLowerCase(Locale.ROOT);
         if (!SOUND_KEY.matcher(lower).matches()) {
             throw new InvalidActionException("son : nom invalide");
         }
+        Key key;
         try {
-            return new ConfiguredAction.SoundAction(raw, Key.key(lower), null, volume, pitch, runtime);
+            key = Key.key(lower);
         } catch (InvalidKeyException e) {
             throw new InvalidActionException("son : clé invalide");
         }
+        // Seul l'espace minecraft: est vérifiable ; les sons de pack de ressources sont acceptés tels quels.
+        if (known != null && Key.MINECRAFT_NAMESPACE.equals(key.namespace()) && !known.contains(key)) {
+            throw new InvalidActionException("son inconnu « " + shorten(lower) + " »");
+        }
+        return new ConfiguredAction.SoundAction(origin, raw, key, null, volume, pitch, runtime);
     }
 
     private static float parseFloat(String raw, String what, float min, float max) throws InvalidActionException {
@@ -190,7 +209,7 @@ public final class DefaultActionParser implements ActionParser {
                 break;
             }
             try {
-                out.add(parse(raw));
+                out.add(parse(raw, context));
             } catch (InvalidActionException e) {
                 logger.warning("[" + context + "] Action ignorée « " + shorten(raw) + " » : " + e.getMessage());
             }

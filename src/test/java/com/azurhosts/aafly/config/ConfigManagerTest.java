@@ -175,4 +175,20 @@ class ConfigManagerTest {
         ConfigException e = assertThrows(ConfigException.class, () -> manager(dir).load());
         assertTrue(e.getMessage().contains("en double"));
     }
+
+    @Test
+    void clesInconnuesSignaleesSansSuppression() throws Exception {
+        org.spongepowered.configurate.ConfigurationNode defaults = org.spongepowered.configurate.BasicConfigurationNode.root();
+        defaults.node("flight", "default-speed").set(0.1D);
+        defaults.node("fly-rules", "default", "result").set("ALLOW");
+        org.spongepowered.configurate.ConfigurationNode user = org.spongepowered.configurate.BasicConfigurationNode.root();
+        user.node("flight", "default-speed").set(0.2D);
+        user.node("flight", "typo").set(true);
+        user.node("redis", "host").set("x");
+        user.node("fly-rules", "ma_regle", "result").set("DENY");
+        java.util.List<String> unknown = new java.util.ArrayList<>();
+        ConfigManager.collectUnknown(user, defaults, "", java.util.Set.of("fly-rules"), unknown);
+        assertEquals(List.of("flight.typo", "redis"), unknown);
+        assertFalse(user.node("redis").virtual());
+    }
 }
